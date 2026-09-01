@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from kov_worker.protocol import (
     ProtocolError,
     Response,
@@ -13,9 +14,9 @@ from kov_worker.protocol import (
 def valid_payload(**overrides):
     payload = {
         "id": "req-1",
-        "input_path": "interview.mp3",
+        "input_path": "decoded.wav",
         "output_path": "interview.clean.wav",
-        "stages": ["decode", "denoise"],
+        "stages": ["denoise", "extract"],
     }
     payload.update(overrides)
     return json.dumps(payload)
@@ -26,8 +27,8 @@ class TestParseRequest:
         request = parse_request(valid_payload())
 
         assert request.id == "req-1"
-        assert request.input_path == "interview.mp3"
-        assert request.stages == ("decode", "denoise")
+        assert request.input_path == "decoded.wav"
+        assert request.stages == ("denoise", "extract")
 
     def test_rejects_malformed_json(self):
         with pytest.raises(ProtocolError, match="invalid JSON"):
@@ -51,7 +52,11 @@ class TestParseRequest:
 
     def test_rejects_an_unknown_stage(self):
         with pytest.raises(ProtocolError, match="unknown stage"):
-            parse_request(valid_payload(stages=["decode", "transcribe"]))
+            parse_request(valid_payload(stages=["denoise", "transcribe"]))
+
+    def test_rejects_decode_because_it_runs_in_the_cli(self):
+        with pytest.raises(ProtocolError, match="unknown stage"):
+            parse_request(valid_payload(stages=["decode"]))
 
 
 class TestSerializeResponse:
@@ -61,12 +66,14 @@ class TestSerializeResponse:
             ok=True,
             output_path="interview.clean.wav",
             segments=(SpeakerSegment("SPEAKER_00", 0, 1_500, -21.4),),
+            warnings=('stage "denoise" is not implemented yet',),
         )
 
         payload = json.loads(serialize_response(response))
 
         assert payload["ok"] is True
         assert payload["output_path"] == "interview.clean.wav"
+        assert payload["warnings"] == ['stage "denoise" is not implemented yet']
         assert payload["segments"] == [
             {
                 "speaker_id": "SPEAKER_00",

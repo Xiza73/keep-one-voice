@@ -2,7 +2,9 @@
 name = "kov-worker"
 version = "0.0.0"
 description = "Machine learning worker for keep-one-voice: denoise, source separation, diarization and target speaker extraction."
-requires-python = ">=3.11"
+# Capped below 3.13: torch, demucs and pyannote wheels lag new CPython releases,
+# and uv otherwise picks the newest interpreter on the machine.
+requires-python = ">=3.11,<3.13"
 dependencies = [
   "numpy>=1.26",
   "soundfile>=0.12.1",
