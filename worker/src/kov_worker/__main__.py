@@ -1,10 +1,20 @@
-"""Entry point: read requests from stdin, write responses to stdout."""
+"""Entry point: read requests from stdin, write responses to stdout.
+
+Logs must go to stderr. Anything printed to stdout that is not a protocol line
+is noise the CLI has to skip past.
+"""
 
 from __future__ import annotations
 
 import sys
 
-from kov_worker.protocol import ProtocolError, Response, parse_request, serialize_response
+from kov_worker.protocol import (
+    ProtocolError,
+    Response,
+    parse_request,
+    serialize_response,
+)
+from kov_worker.stages import StageError, run_stages
 
 
 def handle(line: str) -> Response:
@@ -13,17 +23,27 @@ def handle(line: str) -> Response:
     except ProtocolError as exc:
         return Response(id="", ok=False, error={"kind": "protocol", "detail": str(exc)})
 
-    # TODO(F0): dispatch each stage to its implementation.
+    try:
+        result = run_stages(request.input_path, request.output_path, request.stages)
+    except StageError as exc:
+        return Response(
+            id=request.id,
+            ok=False,
+            error={"kind": exc.kind, "detail": exc.detail},
+        )
+
     return Response(
         id=request.id,
-        ok=False,
-        error={"kind": "not-implemented", "detail": f"stages: {', '.join(request.stages)}"},
+        ok=True,
+        output_path=result.output_path,
+        segments=result.segments,
+        warnings=result.warnings,
     )
 
 
 def main() -> int:
-    for line in sys.stdin:
-        line = line.strip()
+    for raw in sys.stdin:
+        line = raw.strip()
         if not line:
             continue
         sys.stdout.write(serialize_response(handle(line)) + "\n")

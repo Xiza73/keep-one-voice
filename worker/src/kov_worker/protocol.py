@@ -13,9 +13,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-Stage = Literal["decode", "denoise", "separate", "diarize", "extract"]
+Stage = Literal["denoise", "separate", "diarize", "extract"]
 
-STAGES: tuple[Stage, ...] = ("decode", "denoise", "separate", "diarize", "extract")
+# `decode` is absent on purpose: FFmpeg is invoked from the CLI so that there is
+# a single process-spawning surface to audit, and so an unreadable file fails
+# before the model stack is ever imported.
+STAGES: tuple[Stage, ...] = ("denoise", "separate", "diarize", "extract")
 
 
 class ProtocolError(ValueError):
@@ -44,6 +47,7 @@ class Response:
     ok: bool
     output_path: str | None = None
     segments: tuple[SpeakerSegment, ...] = ()
+    warnings: tuple[str, ...] = ()
     error: dict[str, Any] | None = field(default=None)
 
 
@@ -83,6 +87,7 @@ def serialize_response(response: Response) -> str:
 
     if response.ok:
         payload["output_path"] = response.output_path
+        payload["warnings"] = list(response.warnings)
         payload["segments"] = [
             {
                 "speaker_id": segment.speaker_id,

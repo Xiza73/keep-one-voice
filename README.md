@@ -3,10 +3,10 @@
 Isolate the main voice from an audio recording by removing background noise,
 music and secondary speakers.
 
-> **Status: early scaffold.** The architecture, contracts and tooling are in
-> place and tested, but no audio processing stage is implemented yet. Running
-> `kov` today exits with `not implemented`. See [Roadmap](#roadmap) for what
-> works and what does not.
+> **Status: F0 complete.** `kov` decodes any container FFmpeg understands into
+> mono 16 kHz WAV and round-trips it through the Python worker. No cleaning
+> stage exists yet: `denoise`, `separate`, `diarize` and `extract` pass the
+> audio through unchanged and say so on stderr. See [Roadmap](#roadmap).
 
 ## The problem
 
@@ -128,7 +128,7 @@ bun run build            # compile the binary into dist/kov
 Built in layers. Each phase ships and is measured before the next one starts —
 debugging a four-stage pipeline all at once is not a plan.
 
-- [ ] **F0** — Decode, spawn the worker, round-trip the protocol
+- [x] **F0** — Decode, spawn the worker, round-trip the protocol
 - [ ] **F1** — Denoise a single voice against background noise
 - [ ] **F2** — Separate voice from music and instruments
 - [ ] **F3** — Diarize and extract the dominant speaker

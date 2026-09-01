@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { dominantSpeakerSelector, type SpeakerSegment } from './index.ts';
+import { dominantSpeakerSelector, type SpeakerSegment } from './speaker.ts';
 
 const segment = (
   speakerId: string,
