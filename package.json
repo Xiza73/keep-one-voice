@@ -1,0 +1,34 @@
+{
+  "name": "keep-one-voice",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolate the main voice from an audio recording by removing noise, music and secondary speakers.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run packages/cli/src/main.ts",
+    "build": "bun build packages/cli/src/main.ts --compile --outfile dist/kov",
+    "setup:py": "cd worker && uv sync",
+    "test": "bun run test:ts && bun run test:py",
+    "test:ts": "bun test",
+    "test:py": "cd worker && uv run pytest",
+    "lint": "bun run lint:ts && bun run lint:py",
+    "lint:ts": "biome check .",
+    "lint:py": "cd worker && uv run ruff check .",
+    "format": "bun run format:ts && bun run format:py",
+    "format:ts": "biome check --write .",
+    "format:py": "cd worker && uv run ruff format .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@kov/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Command line adapter for keep-one-voice.",
+  "bin": {
+    "kov": "./src/main.ts"
+  },
+  "dependencies": {
+    "@kov/core": "workspace:*"
+  }
+}

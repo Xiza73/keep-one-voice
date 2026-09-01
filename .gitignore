@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Claude Code — personal overrides
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Model weights — never commit these, they are downloaded on demand
+models/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# Generated audio and scratch files
+out/
+tmp/
+fixtures/out/
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Local tooling metadata — contains absolute paths from the developer machine
+.atl/
+
+# OS
+.DS_Store

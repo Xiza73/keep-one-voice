@@ -1,0 +1,11 @@
+{
+  "name": "@kov/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain layer: ports, contracts and pipeline orchestration. Knows nothing about the CLI or the Python worker.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
