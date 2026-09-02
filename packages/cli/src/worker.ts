@@ -6,7 +6,7 @@ import type {
   VoiceEngine,
   WorkerStage,
 } from '@kov/core';
-import { err, ok } from '@kov/core';
+import { err, ok, WORKER_STAGES } from '@kov/core';
 import type { ProcessRunner } from './process.ts';
 
 export interface WorkerOptions {
@@ -29,7 +29,12 @@ interface RawResponse {
   readonly output_path?: unknown;
   readonly segments?: readonly RawSegment[];
   readonly warnings?: readonly unknown[];
-  readonly error?: { readonly kind?: unknown; readonly detail?: unknown; readonly model?: unknown };
+  readonly error?: {
+    readonly kind?: unknown;
+    readonly detail?: unknown;
+    readonly model?: unknown;
+    readonly stage?: unknown;
+  };
 }
 
 /** The worker writes one JSON object per line; anything else on stdout is noise. */
@@ -54,6 +59,11 @@ const toSegment = (raw: RawSegment): SpeakerSegment => ({
   meanDbfs: Number(raw.mean_dbfs ?? 0),
 });
 
+const asWorkerStage = (value: unknown): WorkerStage | null =>
+  typeof value === 'string' && (WORKER_STAGES as readonly string[]).includes(value)
+    ? (value as WorkerStage)
+    : null;
+
 const toEngineError = (raw: RawResponse['error']): EngineError => {
   const detail = typeof raw?.detail === 'string' ? raw.detail : 'the worker reported a failure';
 
@@ -62,8 +72,18 @@ const toEngineError = (raw: RawResponse['error']): EngineError => {
       return { kind: 'model-gated', model: String(raw.model ?? 'unknown model') };
     case 'unreadable-input':
       return { kind: 'unreadable-input', detail };
-    case 'stage-failed':
-      return { kind: 'stage-failed', stage: 'denoise', detail };
+    case 'silent-output':
+      return { kind: 'silent-output', detail };
+    case 'write-failed':
+      return { kind: 'write-failed', detail };
+    case 'stage-failed': {
+      const stage = asWorkerStage(raw.stage);
+      // An unrecognised stage name means the two sides disagree about the
+      // contract, which is a worker problem rather than a stage problem.
+      return stage === null
+        ? { kind: 'worker-unavailable', detail: `unknown stage in worker error: ${detail}` }
+        : { kind: 'stage-failed', stage, detail };
+    }
     default:
       return { kind: 'worker-unavailable', detail };
   }

@@ -33,5 +33,9 @@ export function describeError(error: PipelineError): string {
       return `the model ${error.model} is gated. Accept its licence on Hugging Face and export HF_TOKEN`;
     case 'stage-failed':
       return `stage "${error.stage}" failed: ${error.detail}`;
+    case 'silent-output':
+      return `the pipeline produced a silent track, which means a stage destroyed the audio: ${error.detail}`;
+    case 'write-failed':
+      return `the result could not be written: ${error.detail}`;
   }
 }

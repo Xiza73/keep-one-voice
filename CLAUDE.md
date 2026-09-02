@@ -28,8 +28,8 @@ Depurar un pipeline de cuatro etapas a ciegas no es una opción.
 
 | Fase | Entrega | Modelo de referencia |
 | ---- | ------- | -------------------- |
-| F0 | I/O: decodificar a PCM mono 16 kHz, escribir el resultado, contrato con el worker | FFmpeg |
-| F1 | Denoise: quitar ruido de fondo con una sola voz presente | DeepFilterNet |
+| F0 | I/O: decodificar a PCM mono 48 kHz, escribir el resultado, contrato con el worker | FFmpeg |
+| F1 | Denoise: quitar ruido de fondo con una sola voz presente | DeepFilterNet 3 |
 | F2 | Separación de stems: voz contra música e instrumentos | Demucs v4 |
 | F3 | Diarización + extracción del hablante dominante | pyannote 3.1 |
 | F4 (opcional) | Transcripción de la pista resultante | faster-whisper |
@@ -61,6 +61,10 @@ clonación o síntesis de voz, y despliegue como servicio.
 ```bash
 bun install              # dependencias de TypeScript
 bun run setup:py         # crea el entorno de Python del worker (uv sync)
+
+# Los modelos son extras opcionales, separados por fase, para no arrastrar el
+# stack de una etapa mientras se trabaja en otra:
+cd worker && uv sync --extra denoise      # F1: DeepFilterNet 3
 
 bun run dev              # ejecuta la CLI en desarrollo
 bun run build            # compila el binario en dist/kov
@@ -98,6 +102,12 @@ se escribe en **español neutro**. No se usan regionalismos en ningún artefacto
 orquestación y **no conoce** ni la CLI ni el proceso de Python. `packages/cli` y
 el worker son adaptadores. Si `core` importa algo específico de un adaptador, la
 dependencia está invertida y hay que corregirlo.
+
+**Frecuencia de muestreo.** El pipeline trabaja a 48 kHz porque DeepFilterNet 3
+trabaja ahí, y decodificar a una frecuencia menor destruiría la banda que ese
+modelo tiene que limpiar. Las etapas que necesitan menos —la diarización opera a
+16 kHz— remuestrean de su lado: producen marcas de tiempo, así que su frecuencia
+no debe condicionar el audio que la persona escucha.
 
 **Testing (TDD estricto).** Primero la prueba que falla, luego la
 implementación mínima, luego el refactor. Las pruebas describen comportamiento
@@ -141,7 +151,7 @@ keep-one-voice/
 
 ## 7. Integraciones externas
 
-- **FFmpeg** — decodifica `mp3`/`ogg`/`m4a` y remuestrea a PCM mono 16 kHz. Es
+- **FFmpeg** — decodifica `mp3`/`ogg`/`m4a` y remuestrea a PCM mono 48 kHz. Es
   una dependencia del sistema, no del paquete. La CLI debe verificar su presencia
   al arrancar y fallar con un mensaje accionable si falta.
 - **Hugging Face Hub** — descarga los pesos de los modelos.

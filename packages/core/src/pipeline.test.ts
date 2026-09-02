@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import type { AudioDecoder, EngineRequest, VoiceEngine, Workspace } from './pipeline.ts';
+import type {
+  AudioDecoder,
+  DecodeRequest,
+  EngineRequest,
+  VoiceEngine,
+  Workspace,
+} from './pipeline.ts';
 import { runPipeline } from './pipeline.ts';
 import { err, ok } from './result.ts';
 
@@ -192,6 +198,26 @@ describe('runPipeline', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.speakerId).toBeNull();
+  });
+
+  test('asks the decoder for mono audio at the pipeline sample rate', async () => {
+    const requests: DecodeRequest[] = [];
+    const decoder: AudioDecoder = {
+      decode: async (request) => {
+        requests.push(request);
+        return ok({ path: request.outputPath, durationMs: 1_000 });
+      },
+    };
+    const { engine } = engineThatSucceeds();
+    const { workspace } = workspaceSpy();
+
+    await runPipeline(
+      { decoder, engine, workspace },
+      { inputPath: 'note.mp3', outputPath: 'note.wav', stages: ['decode'] },
+    );
+
+    expect(requests[0]?.sampleRate).toBe(48_000);
+    expect(requests[0]?.channels).toBe(1);
   });
 
   test('never disposes the workspace: that lifecycle belongs to the caller', async () => {

@@ -20,11 +20,13 @@ def tone(tmp_path):
 
 
 def request_line(**overrides):
+    # `separate` is deliberately unimplemented: these tests are about the
+    # protocol, and must not drag a model into a unit test.
     payload = {
         "id": "req-1",
         "input_path": "in.wav",
         "output_path": "out.wav",
-        "stages": ["denoise"],
+        "stages": ["separate"],
     }
     payload.update(overrides)
     return json.dumps(payload)
@@ -49,7 +51,7 @@ class TestHandle:
             request_line(
                 input_path=str(tone),
                 output_path=str(tmp_path / "out.wav"),
-                stages=["denoise", "diarize"],
+                stages=["separate", "diarize"],
             )
         )
 
