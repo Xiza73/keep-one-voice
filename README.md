@@ -123,6 +123,30 @@ bun run typecheck        # tsc --noEmit
 bun run build            # compile the binary into dist/kov
 ```
 
+## Measuring quality
+
+"Sounds better" is not a criterion anyone can verify, so every claim about a
+cleaning stage has to come from a number.
+
+```bash
+bun run fixtures   # build the corpus: 3 speakers x 3 noise types x 4 SNRs
+bun run eval       # score it with SI-SDR
+```
+
+The corpus is synthesised locally — speech from `say`, noise from a seed, mixed
+at exact SNRs — because SI-SDR needs a clean reference and a real-world
+recording does not have one. It is reproducible from the seed, so it is
+generated rather than committed.
+
+The current baseline, with no cleaning stage implemented, is **+8.75 dB**
+averaged over all noise types. Every stage from F1 onwards has to beat it.
+
+Run `kov` over `fixtures/generated/noisy/`, then score the output:
+
+```bash
+bun run eval -- --processed <output-dir>
+```
+
 ## Roadmap
 
 Built in layers. Each phase ships and is measured before the next one starts —
