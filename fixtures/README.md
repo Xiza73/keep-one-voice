@@ -111,7 +111,65 @@ sustituto de música es demasiado fácil para distinguir a los dos modelos, no q
 F2 carezca de valor sobre música real. Confirmarlo exigiría música con licencia,
 fuera del alcance de un corpus que vive en un repositorio público.
 
-### Por qué existe este corpus
+## Conversaciones (F3)
+
+Una mezcla con ruido necesita una referencia limpia. Una conversación necesita
+más: la contribución de **cada** hablante a la línea de tiempo, quién habla
+cuándo, y **dos respuestas distintas** a "qué voz conservamos":
+
+- `dominant` — a quién elegirá el heurístico automático: más tiempo hablando,
+  desempate por volumen. Es el espejo exacto de `dominantSpeakerSelector` en
+  `packages/core`.
+- `intended` — a quién quiere conservar la persona.
+
+En los escenarios fáciles coinciden. En dos escenarios **no coinciden a
+propósito**, porque el heurístico está documentado como frágil justo ahí.
+
+```
+fixtures/generated/conversations/
+├── two-clean.wav              # la mezcla
+├── two-clean_en-female.wav    # lo que un extractor perfecto devolvería
+├── two-clean_en-male.wav
+└── ...
+```
+
+Cada referencia es la pista de ese hablante sobre la línea de tiempo compartida,
+en silencio donde no habla. La mezcla es la suma exacta de las referencias.
+
+### Escenarios y línea base
+
+| Escenario | Quiere | Elige el heurístico | ¿Acierta? | SI-SDR base |
+| --------- | ------ | ------------------- | --------- | ----------- |
+| `two-clean` | en-female | en-female | sí | +8.33 dB |
+| `two-overlap` | en-female | en-female | sí | +8.34 dB |
+| `three-overlap` | en-female | en-female | sí | +2.04 dB |
+| `two-hard-duration` | en-female | **en-male** | **NO** | +3.12 dB |
+| `two-hard-loudness` | en-female | **en-male** | **NO** | −0.18 dB |
+
+La línea base mide cuán enterrada está la voz deseada dentro de la mezcla. F3
+tiene que superarla.
+
+`two-hard-loudness` es el caso más duro: **−0.18 dB**, la voz que se quiere está
+por debajo de todo lo demás junto. El interlocutor estaba más cerca del
+micrófono, habló lo mismo, y el heurístico se va con él.
+
+### Qué debe medir F3
+
+Dos cosas separadas, y confundirlas es el error fácil:
+
+1. **¿Apuntó a la voz correcta?** Es binario, y `heuristic_agrees` ya lo reporta.
+2. **¿Qué tan limpia quedó la voz extraída?** SI-SDR contra la referencia de
+   `intended`.
+
+Una extracción perfecta de la voz equivocada da un SI-SDR pésimo contra
+`intended`. Un promedio que mezcle ambos casos no dice nada útil. **Reporta las
+dos por separado.**
+
+Los dos escenarios difíciles existen para que ese fallo aparezca en una tabla y
+no en la grabación de alguien. Cuando exista `--speaker <id>` o la selección por
+muestra de referencia, estos son los archivos donde se demuestra que sirven.
+
+## Por qué existe este corpus
 
 Sin medición, F1 se habría publicado como "DeepFilterNet funciona bien" y el
 fallo con voces graves habría aparecido en producción. Y F2 se habría publicado

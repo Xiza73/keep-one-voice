@@ -12,6 +12,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import soundfile as sf
@@ -52,6 +53,26 @@ class Summary:
     mean_improvement: float | None
 
 
+@dataclass(frozen=True)
+class ConversationRow:
+    key: str
+    intended: str
+    dominant: str
+    baseline_si_sdr: float
+    processed_si_sdr: float | None
+
+    @property
+    def heuristic_agrees(self) -> bool:
+        """Whether the automatic choice matches the voice a person actually wants."""
+        return self.dominant == self.intended
+
+    @property
+    def improvement(self) -> float | None:
+        if self.processed_si_sdr is None:
+            return None
+        return self.processed_si_sdr - self.baseline_si_sdr
+
+
 def align(
     reference: NDArray[np.floating],
     estimate: NDArray[np.floating],
@@ -78,14 +99,17 @@ def _read(path: Path) -> NDArray[np.float32]:
     return samples
 
 
-def evaluate(root: Path, processed_dir: Path | None = None) -> tuple[EvalRow, ...]:
+def _load_manifest(root: Path) -> dict[str, Any]:
     manifest_path = root / "manifest.json"
     if not manifest_path.exists():
         raise EvalError(
             f"no manifest at {manifest_path}. Generate the corpus first: bun run fixtures"
         )
+    return json.loads(manifest_path.read_text())
 
-    manifest = json.loads(manifest_path.read_text())
+
+def evaluate(root: Path, processed_dir: Path | None = None) -> tuple[EvalRow, ...]:
+    manifest = _load_manifest(root)
 
     rows: list[EvalRow] = []
     for entry in manifest["entries"]:
@@ -106,6 +130,46 @@ def evaluate(root: Path, processed_dir: Path | None = None) -> tuple[EvalRow, ..
                 speaker=entry["speaker"],
                 noise=entry["noise"],
                 snr_db=float(entry["snr_db"]),
+                baseline_si_sdr=baseline,
+                processed_si_sdr=processed_score,
+            )
+        )
+
+    return tuple(rows)
+
+
+def evaluate_conversations(
+    root: Path,
+    processed_dir: Path | None = None,
+) -> tuple[ConversationRow, ...]:
+    """Score multi-speaker mixtures against the voice a person actually wants.
+
+    The baseline says how buried the intended speaker is in the mixture. F3 has
+    to beat it — and `heuristic_agrees` says whether the automatic choice would
+    even have aimed at the right voice.
+    """
+    manifest = _load_manifest(root)
+
+    rows: list[ConversationRow] = []
+    for entry in manifest.get("conversations", []):
+        intended = entry["intended"]
+        reference = _read(root / entry["references"][intended])
+        mixture = _read(root / entry["mixture"])
+
+        aligned_reference, degraded = align(reference, mixture)
+        baseline = si_sdr(aligned_reference, degraded)
+
+        processed_score: float | None = None
+        if processed_dir is not None:
+            candidate = _read(processed_dir / Path(entry["mixture"]).name)
+            aligned_reference, cleaned = align(reference, candidate)
+            processed_score = si_sdr(aligned_reference, cleaned)
+
+        rows.append(
+            ConversationRow(
+                key=entry["key"],
+                intended=intended,
+                dominant=entry["dominant"],
                 baseline_si_sdr=baseline,
                 processed_si_sdr=processed_score,
             )
@@ -177,6 +241,30 @@ def format_table(rows: tuple[EvalRow, ...]) -> str:
     return "\n".join(lines)
 
 
+def format_conversations(rows: tuple[ConversationRow, ...]) -> str:
+    lines = [
+        f"{'scenario':<20} {'wanted':<11} {'heuristic':<11} {'ok':>3} "
+        f"{'baseline':>9} {'kept':>9} {'gain':>9}",
+        "-" * 76,
+    ]
+    for row in rows:
+        lines.append(
+            f"{row.key:<20} {row.intended:<11} {row.dominant:<11} "
+            f"{'yes' if row.heuristic_agrees else 'NO':>3} "
+            f"{_db(row.baseline_si_sdr):>9} {_db(row.processed_si_sdr):>9} "
+            f"{_db(row.improvement):>9}"
+        )
+
+    wrong = [row.key for row in rows if not row.heuristic_agrees]
+    if wrong:
+        lines.append("")
+        lines.append(
+            f"the dominant-speaker heuristic aims at the wrong voice in: {', '.join(wrong)}"
+        )
+
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="kov-eval",
@@ -192,12 +280,19 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        rows = evaluate(args.corpus.resolve(), args.processed)
+        root = args.corpus.resolve()
+        rows = evaluate(root, args.processed)
+        conversations = evaluate_conversations(root, args.processed)
     except EvalError as exc:
         print(f"error: {exc}")
         return 1
 
     print(format_table(rows))
+
+    if conversations:
+        print()
+        print(format_conversations(conversations))
+
     return 0
 
 

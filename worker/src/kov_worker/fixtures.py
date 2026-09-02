@@ -20,12 +20,17 @@ import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import soundfile as sf
 from numpy.typing import NDArray
 
+from kov_worker.conversations import SCENARIOS, dominant_speaker, plan_turns, render
 from kov_worker.metrics import mix_at_snr
+
+# Long enough that a diarizer has something to latch onto in each turn.
+CONVERSATION_TURN_MS = 1_500
 
 NOISE_KINDS: tuple[str, ...] = ("white", "brown", "hum", "music")
 
@@ -262,6 +267,42 @@ def synthesize(speaker: Speaker, output_path: Path, sample_rate: int) -> None:
             raise FixtureError(f"ffmpeg failed converting speech: {converted.stderr.strip()}")
 
 
+def build_conversations(
+    out_dir: Path,
+    speech: dict[str, NDArray[np.float32]],
+    sample_rate: int,
+) -> list[dict[str, Any]]:
+    """Render every multi-speaker scenario, with the ground truth F3 needs."""
+    (out_dir / "conversations").mkdir(parents=True, exist_ok=True)
+
+    records: list[dict[str, Any]] = []
+    for scenario in SCENARIOS:
+        turns = plan_turns(scenario.order, CONVERSATION_TURN_MS, scenario.overlap)
+        mixture, references = render(turns, speech, sample_rate, scenario.gains_db)
+
+        mixture_path = f"conversations/{scenario.key}.wav"
+        sf.write(out_dir / mixture_path, mixture, sample_rate)
+
+        reference_paths: dict[str, str] = {}
+        for speaker, track in sorted(references.items()):
+            path = f"conversations/{scenario.key}_{speaker}.wav"
+            sf.write(out_dir / path, track, sample_rate)
+            reference_paths[speaker] = path
+
+        records.append(
+            {
+                "key": scenario.key,
+                "mixture": mixture_path,
+                "references": reference_paths,
+                "dominant": dominant_speaker(turns, scenario.gains_db),
+                "intended": scenario.intended,
+                "turns": [asdict(turn) for turn in turns],
+            }
+        )
+
+    return records
+
+
 def generate(out_dir: Path, seed: int, sample_rate: int) -> tuple[CorpusEntry, ...]:
     """Build the whole corpus under `out_dir`, write the manifest, return the entries."""
     for sub in ("clean", "noise", "noisy"):
@@ -291,6 +332,7 @@ def generate(out_dir: Path, seed: int, sample_rate: int) -> tuple[CorpusEntry, .
         "sample_rate": sample_rate,
         "seed": seed,
         "entries": [asdict(entry) for entry in entries],
+        "conversations": build_conversations(out_dir, speech, sample_rate),
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
@@ -313,7 +355,10 @@ def main() -> int:
         print(f"error: {exc}")
         return 1
 
-    print(f"wrote {len(entries)} mixtures to {args.out.resolve()}")
+    print(
+        f"wrote {len(entries)} noise mixtures and {len(SCENARIOS)} conversations "
+        f"to {args.out.resolve()}"
+    )
     return 0
 
 
