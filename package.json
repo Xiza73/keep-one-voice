@@ -12,6 +12,8 @@
     "dev": "bun run packages/cli/src/main.ts",
     "build": "bun build packages/cli/src/main.ts --compile --outfile dist/kov",
     "setup:py": "cd worker && uv sync",
+    "fixtures": "cd worker && uv run kov-fixtures",
+    "eval": "cd worker && uv run kov-eval",
     "test": "bun run test:ts && bun run test:py",
     "test:ts": "bun test",
     "test:py": "cd worker && uv run pytest",

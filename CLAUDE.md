@@ -69,6 +69,9 @@ bun run test             # todas las pruebas (TypeScript + Python)
 bun run test:ts          # solo bun:test
 bun run test:py          # solo pytest
 
+bun run fixtures         # genera el corpus de medición en fixtures/generated
+bun run eval             # mide el corpus con SI-SDR (línea base y mejora)
+
 bun run lint             # Biome + Ruff en modo verificación
 bun run format           # Biome + Ruff aplicando cambios
 ```

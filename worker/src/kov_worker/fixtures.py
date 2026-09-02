@@ -1,0 +1,267 @@
+"""Reproducible test corpus generation.
+
+Real recordings cannot be measured: there is no clean reference to compare
+against, so SI-SDR is undefined. This module builds the opposite — speech
+synthesised locally, noise generated from a seed, and mixtures at exact SNRs —
+so every file in the corpus comes with the ground truth that produced it.
+
+A synthetic corpus is enough to answer "did this denoiser help, and by how many
+decibels". It is not enough to answer "does this sound good to a person". Both
+questions matter; only the first one belongs in an automated gate.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import shutil
+import subprocess
+import tempfile
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+from numpy.typing import NDArray
+
+from kov_worker.metrics import mix_at_snr
+
+NOISE_KINDS: tuple[str, ...] = ("white", "brown", "hum")
+
+DEFAULT_SNR_LEVELS: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0)
+
+DEFAULT_SAMPLE_RATE = 16_000
+
+MAINS_HZ = 50.0
+
+PEAK = 0.9
+
+
+class FixtureError(RuntimeError):
+    """Raised when the corpus cannot be produced."""
+
+
+@dataclass(frozen=True)
+class Speaker:
+    key: str
+    voice: str
+    text: str
+
+
+@dataclass(frozen=True)
+class CorpusEntry:
+    speaker: str
+    noise: str
+    snr_db: float
+    clean: str
+    noisy: str
+
+
+# macOS voices. `say -v '?'` lists what is installed on this machine.
+DEFAULT_SPEAKERS: tuple[Speaker, ...] = (
+    Speaker(
+        "en-female",
+        "Samantha",
+        "The recording was made in a small room with the window open. "
+        "You can hear traffic outside, and the air conditioning never stops. "
+        "None of that belongs in the final cut.",
+    ),
+    Speaker(
+        "en-male",
+        "Fred",
+        "I set the microphone too far away and the gain too high. "
+        "Half the interview is unusable, and the other half needs work. "
+        "Let us see how much of it can be recovered.",
+    ),
+    Speaker(
+        "es-female",
+        "Paulina",
+        "La entrevista se grabó en una cafetería a media tarde. "
+        "Hay conversaciones de fondo, música y el ruido de la máquina de café. "
+        "Solo interesa conservar una voz.",
+    ),
+)
+
+
+def _normalise(signal: NDArray[np.float64]) -> NDArray[np.float32]:
+    peak = float(np.max(np.abs(signal)))
+    if peak <= 0.0:
+        raise FixtureError("generated a silent signal")
+    return (signal / peak * PEAK).astype(np.float32)
+
+
+def make_noise(
+    kind: str,
+    samples: int,
+    sample_rate: int,
+    rng: np.random.Generator,
+) -> NDArray[np.float32]:
+    """Generate one noise type. Same seed in, same samples out."""
+    if kind not in NOISE_KINDS:
+        raise FixtureError(f"unknown noise kind: {kind}")
+
+    white = rng.normal(0.0, 1.0, samples)
+
+    if kind == "white":
+        return _normalise(white)
+
+    if kind == "brown":
+        # Integrating white noise gives a -6 dB/octave slope: the dull, low
+        # rumble of traffic and air conditioning rather than tape hiss.
+        brown = np.cumsum(white)
+        return _normalise(brown - brown.mean())
+
+    # Mains hum: a strong fundamental with decaying harmonics, plus a whisper of
+    # broadband noise so it is not a mathematically perfect tone.
+    t = np.arange(samples) / sample_rate
+    hum = sum(
+        amplitude * np.sin(2.0 * math.pi * MAINS_HZ * harmonic * t)
+        for harmonic, amplitude in ((1, 1.0), (2, 0.4), (3, 0.2))
+    )
+    return _normalise(hum + 0.02 * white)
+
+
+def _snr_tag(snr_db: float) -> str:
+    sign = "m" if snr_db < 0 else ""
+    return f"{sign}{abs(round(snr_db)):02d}"
+
+
+def plan_corpus(
+    speakers: tuple[Speaker, ...],
+    noise_kinds: tuple[str, ...],
+    snr_levels: tuple[float, ...],
+) -> tuple[CorpusEntry, ...]:
+    """Enumerate every combination the corpus will contain."""
+    if not speakers:
+        raise FixtureError("plan_corpus needs at least one speaker")
+    if not noise_kinds:
+        raise FixtureError("plan_corpus needs at least one noise kind")
+    if not snr_levels:
+        raise FixtureError("plan_corpus needs at least one SNR level")
+
+    return tuple(
+        CorpusEntry(
+            speaker=speaker.key,
+            noise=noise,
+            snr_db=snr,
+            clean=f"clean/{speaker.key}.wav",
+            noisy=f"noisy/{speaker.key}_{noise}_snr{_snr_tag(snr)}.wav",
+        )
+        for speaker in speakers
+        for noise in noise_kinds
+        for snr in snr_levels
+    )
+
+
+def _require(binary: str, hint: str) -> str:
+    path = shutil.which(binary)
+    if path is None:
+        raise FixtureError(f"{binary} is not installed or not in PATH. {hint}")
+    return path
+
+
+def synthesize(speaker: Speaker, output_path: Path, sample_rate: int) -> None:
+    """Render one speaker's line to mono PCM at the requested rate."""
+    say = _require("say", "It ships with macOS; this generator is macOS only.")
+    ffmpeg = _require("ffmpeg", "Install it with: brew install ffmpeg")
+
+    with tempfile.TemporaryDirectory() as scratch:
+        raw = Path(scratch) / "speech.aiff"
+
+        spoken = subprocess.run(  # noqa: S603 — fixed binary, argument array, no shell
+            [say, "-v", speaker.voice, "-o", str(raw), speaker.text],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if spoken.returncode != 0:
+            raise FixtureError(
+                f"say failed for voice {speaker.voice!r}: {spoken.stderr.strip()}. "
+                "Run `say -v '?'` to see the voices installed on this machine."
+            )
+
+        converted = subprocess.run(  # noqa: S603
+            [
+                ffmpeg,
+                "-nostdin",
+                "-v",
+                "error",
+                "-y",
+                "-i",
+                str(raw),
+                "-ac",
+                "1",
+                "-ar",
+                str(sample_rate),
+                "-c:a",
+                "pcm_s16le",
+                "-f",
+                "wav",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if converted.returncode != 0:
+            raise FixtureError(f"ffmpeg failed converting speech: {converted.stderr.strip()}")
+
+
+def generate(out_dir: Path, seed: int, sample_rate: int) -> tuple[CorpusEntry, ...]:
+    """Build the whole corpus under `out_dir`, write the manifest, return the entries."""
+    for sub in ("clean", "noise", "noisy"):
+        (out_dir / sub).mkdir(parents=True, exist_ok=True)
+
+    speech: dict[str, NDArray[np.float32]] = {}
+    for speaker in DEFAULT_SPEAKERS:
+        clean_path = out_dir / "clean" / f"{speaker.key}.wav"
+        synthesize(speaker, clean_path, sample_rate)
+        samples, _ = sf.read(clean_path, dtype="float32", always_2d=False)
+        speech[speaker.key] = samples
+
+    longest = max(len(samples) for samples in speech.values())
+
+    noises: dict[str, NDArray[np.float32]] = {}
+    for kind in NOISE_KINDS:
+        noise = make_noise(kind, longest, sample_rate, np.random.default_rng(seed))
+        sf.write(out_dir / "noise" / f"{kind}.wav", noise, sample_rate)
+        noises[kind] = noise
+
+    entries = plan_corpus(DEFAULT_SPEAKERS, NOISE_KINDS, DEFAULT_SNR_LEVELS)
+    for entry in entries:
+        mixture, _ = mix_at_snr(speech[entry.speaker], noises[entry.noise], entry.snr_db)
+        sf.write(out_dir / entry.noisy, mixture, sample_rate)
+
+    manifest = {
+        "sample_rate": sample_rate,
+        "seed": seed,
+        "entries": [asdict(entry) for entry in entries],
+    }
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+    return entries
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="kov-fixtures",
+        description="Generate the reproducible test corpus used to measure cleaning quality.",
+    )
+    parser.add_argument("--out", type=Path, default=Path("../fixtures/generated"))
+    parser.add_argument("--seed", type=int, default=20260901)
+    parser.add_argument("--sample-rate", type=int, default=DEFAULT_SAMPLE_RATE)
+    args = parser.parse_args()
+
+    try:
+        entries = generate(args.out.resolve(), args.seed, args.sample_rate)
+    except FixtureError as exc:
+        print(f"error: {exc}")
+        return 1
+
+    print(f"wrote {len(entries)} mixtures to {args.out.resolve()}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

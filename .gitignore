@@ -31,6 +31,9 @@ out/
 tmp/
 fixtures/out/
 
+# The test corpus is reproducible from a seed: generate it, never commit it
+fixtures/generated/
+
 # Tooling caches
 .ruff_cache/
 .pytest_cache/
