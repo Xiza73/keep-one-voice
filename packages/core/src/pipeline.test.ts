@@ -77,14 +77,14 @@ describe('runPipeline', () => {
       {
         inputPath: 'note.mp3',
         outputPath: 'clean.wav',
-        stages: ['decode', 'denoise', 'extract'],
+        stages: ['decode', 'denoise', 'separate'],
       },
     );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.inputPath).toBe('/tmp/kov-temp.wav');
     expect(calls[0]?.outputPath).toBe('clean.wav');
-    expect(calls[0]?.stages).toEqual(['denoise', 'extract']);
+    expect(calls[0]?.stages).toEqual(['denoise', 'separate']);
   });
 
   test('removes the temporary file after a successful run', async () => {
@@ -218,6 +218,182 @@ describe('runPipeline', () => {
 
     expect(requests[0]?.sampleRate).toBe(48_000);
     expect(requests[0]?.channels).toBe(1);
+  });
+
+  test('splits extraction into a second call, after diarization', async () => {
+    const segments = [
+      { speakerId: 'SPEAKER_00', startMs: 0, endMs: 1_000, meanDbfs: -20 },
+      { speakerId: 'SPEAKER_01', startMs: 1_000, endMs: 6_000, meanDbfs: -20 },
+    ];
+    const calls: EngineRequest[] = [];
+    const engine: VoiceEngine = {
+      run: async (request) => {
+        calls.push(request);
+        return ok({
+          outputPath: request.outputPath,
+          warnings: [],
+          segments: request.stages.includes('diarize') ? segments : [],
+        });
+      },
+    };
+    const { workspace } = workspaceSpy();
+
+    await runPipeline(
+      { decoder: decoderThatSucceeds(), engine, workspace },
+      {
+        inputPath: 'note.mp3',
+        outputPath: 'clean.wav',
+        stages: ['decode', 'denoise', 'diarize', 'extract'],
+      },
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.stages).toEqual(['denoise', 'diarize']);
+    expect(calls[1]?.stages).toEqual(['extract']);
+  });
+
+  test('hands the chosen speaker and the segments to the extract call', async () => {
+    const segments = [
+      { speakerId: 'SPEAKER_00', startMs: 0, endMs: 1_000, meanDbfs: -20 },
+      { speakerId: 'SPEAKER_01', startMs: 1_000, endMs: 6_000, meanDbfs: -20 },
+    ];
+    const calls: EngineRequest[] = [];
+    const engine: VoiceEngine = {
+      run: async (request) => {
+        calls.push(request);
+        return ok({
+          outputPath: request.outputPath,
+          warnings: [],
+          segments: request.stages.includes('diarize') ? segments : [],
+        });
+      },
+    };
+    const { workspace } = workspaceSpy();
+
+    await runPipeline(
+      { decoder: decoderThatSucceeds(), engine, workspace },
+      { inputPath: 'note.mp3', outputPath: 'clean.wav', stages: ['decode', 'diarize', 'extract'] },
+    );
+
+    expect(calls[1]?.speaker).toBe('SPEAKER_01');
+    expect(calls[1]?.segments).toEqual(segments);
+  });
+
+  test('feeds the analysed audio into the extract call, not the raw decode', async () => {
+    const calls: EngineRequest[] = [];
+    const engine: VoiceEngine = {
+      run: async (request) => {
+        calls.push(request);
+        return ok({
+          outputPath: request.outputPath,
+          warnings: [],
+          segments: request.stages.includes('diarize')
+            ? [{ speakerId: 'A', startMs: 0, endMs: 1_000, meanDbfs: -20 }]
+            : [],
+        });
+      },
+    };
+    const { workspace } = workspaceSpy();
+
+    await runPipeline(
+      { decoder: decoderThatSucceeds(), engine, workspace },
+      { inputPath: 'note.mp3', outputPath: 'clean.wav', stages: ['decode', 'diarize', 'extract'] },
+    );
+
+    expect(calls[1]?.inputPath).toBe('/tmp/kov-temp-analysed.wav');
+  });
+
+  test('uses an injected selector instead of the dominance heuristic', async () => {
+    const segments = [
+      { speakerId: 'SPEAKER_00', startMs: 0, endMs: 1_000, meanDbfs: -20 },
+      { speakerId: 'SPEAKER_01', startMs: 1_000, endMs: 6_000, meanDbfs: -20 },
+    ];
+    const calls: EngineRequest[] = [];
+    const engine: VoiceEngine = {
+      run: async (request) => {
+        calls.push(request);
+        return ok({
+          outputPath: request.outputPath,
+          warnings: [],
+          segments: request.stages.includes('diarize') ? segments : [],
+        });
+      },
+    };
+    const { workspace } = workspaceSpy();
+
+    // This is how `--speaker <id>` will arrive: a different selector, nothing else.
+    const result = await runPipeline(
+      {
+        decoder: decoderThatSucceeds(),
+        engine,
+        workspace,
+        selector: { select: () => ok('SPEAKER_00') },
+      },
+      { inputPath: 'note.mp3', outputPath: 'clean.wav', stages: ['decode', 'diarize', 'extract'] },
+    );
+
+    expect(calls[1]?.speaker).toBe('SPEAKER_00');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.speakerId).toBe('SPEAKER_00');
+  });
+
+  test('refuses to extract when diarization found nobody', async () => {
+    const { engine, calls } = engineThatSucceeds();
+    const { workspace } = workspaceSpy();
+
+    const result = await runPipeline(
+      { decoder: decoderThatSucceeds(), engine, workspace },
+      { inputPath: 'note.mp3', outputPath: 'clean.wav', stages: ['decode', 'extract'] },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe('no-speech-detected');
+    expect(calls).toHaveLength(0);
+  });
+
+  test('removes both temporary files after an extraction run', async () => {
+    const engine: VoiceEngine = {
+      run: async (request) =>
+        ok({
+          outputPath: request.outputPath,
+          warnings: [],
+          segments: request.stages.includes('diarize')
+            ? [{ speakerId: 'A', startMs: 0, endMs: 1_000, meanDbfs: -20 }]
+            : [],
+        }),
+    };
+    const { workspace, removed } = workspaceSpy();
+
+    await runPipeline(
+      { decoder: decoderThatSucceeds(), engine, workspace },
+      { inputPath: 'note.mp3', outputPath: 'clean.wav', stages: ['decode', 'diarize', 'extract'] },
+    );
+
+    expect(removed).toEqual(['/tmp/kov-temp.wav', '/tmp/kov-temp-analysed.wav']);
+  });
+
+  test('collects the warnings of both calls', async () => {
+    const engine: VoiceEngine = {
+      run: async (request) =>
+        ok({
+          outputPath: request.outputPath,
+          warnings: [`warned by ${request.stages.join(',')}`],
+          segments: request.stages.includes('diarize')
+            ? [{ speakerId: 'A', startMs: 0, endMs: 1_000, meanDbfs: -20 }]
+            : [],
+        }),
+    };
+    const { workspace } = workspaceSpy();
+
+    const result = await runPipeline(
+      { decoder: decoderThatSucceeds(), engine, workspace },
+      { inputPath: 'note.mp3', outputPath: 'clean.wav', stages: ['decode', 'diarize', 'extract'] },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.warnings).toEqual(['warned by diarize', 'warned by extract']);
+    }
   });
 
   test('never disposes the workspace: that lifecycle belongs to the caller', async () => {

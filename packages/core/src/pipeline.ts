@@ -1,5 +1,10 @@
-import { ok, type Result } from './result.ts';
-import { dominantSpeakerSelector, type SpeakerSegment } from './speaker.ts';
+import { err, ok, type Result } from './result.ts';
+import {
+  dominantSpeakerSelector,
+  type SelectionError,
+  type SpeakerSegment,
+  type SpeakerSelector,
+} from './speaker.ts';
 
 /** Stages as the user sees them on `--stages`. See the phase table in CLAUDE.md. */
 export type PipelineStage = 'decode' | 'denoise' | 'separate' | 'diarize' | 'extract';
@@ -67,6 +72,9 @@ export interface EngineRequest {
   readonly inputPath: string;
   readonly outputPath: string;
   readonly stages: readonly WorkerStage[];
+  /** Carried by the extract call: what diarization found and who was chosen. */
+  readonly segments?: readonly SpeakerSegment[];
+  readonly speaker?: string;
 }
 
 export interface EngineResponse {
@@ -103,12 +111,18 @@ export interface Workspace {
 
 // --- Orchestration ----------------------------------------------------------
 
-export type PipelineError = DecodeError | EngineError;
+export type PipelineError = DecodeError | EngineError | SelectionError;
 
 export interface PipelineDeps {
   readonly decoder: AudioDecoder;
   readonly engine: VoiceEngine;
   readonly workspace: Workspace;
+  /**
+   * Which voice to keep. Defaults to the dominant-speaker heuristic; injecting
+   * another one is how `--speaker <id>` will be added without touching this
+   * orchestration.
+   */
+  readonly selector?: SpeakerSelector;
 }
 
 export interface PipelineOptions {
@@ -161,28 +175,76 @@ export async function runPipeline(
     });
   }
 
-  const engineResult = await deps.engine.run({
-    inputPath: decoded.value.path,
+  // Extraction is a second call. Diarization reports who speaks when, the
+  // domain layer decides which voice to keep, and only then does the worker
+  // mask the audio. Keeping that decision here is why `SpeakerSelector` exists.
+  const extracting = workerStages.includes('extract');
+  const analysisStages = workerStages.filter((stage) => stage !== 'extract');
+
+  const analysisTarget = extracting
+    ? await deps.workspace.createTempFile('-analysed.wav')
+    : options.outputPath;
+
+  const cleanUp = async (): Promise<void> => {
+    await deps.workspace.remove(decodeTarget);
+    if (extracting) await deps.workspace.remove(analysisTarget);
+  };
+
+  const warnings: string[] = [];
+  let analysed = decoded.value.path;
+  let segments: readonly SpeakerSegment[] = [];
+
+  if (analysisStages.length > 0) {
+    const analysis = await deps.engine.run({
+      inputPath: analysed,
+      outputPath: analysisTarget,
+      stages: analysisStages,
+    });
+
+    if (!analysis.ok) {
+      await cleanUp();
+      return analysis;
+    }
+
+    analysed = analysis.value.outputPath;
+    segments = analysis.value.segments;
+    warnings.push(...analysis.value.warnings);
+  }
+
+  const selection =
+    segments.length > 0 ? (deps.selector ?? dominantSpeakerSelector).select(segments) : null;
+
+  if (!extracting) {
+    await cleanUp();
+    return ok({
+      outputPath: analysisStages.length > 0 ? analysed : options.outputPath,
+      durationMs: decoded.value.durationMs,
+      speakerId: selection?.ok ? selection.value : null,
+      warnings,
+    });
+  }
+
+  if (selection === null || !selection.ok) {
+    await cleanUp();
+    return err<SelectionError>({ kind: 'no-speech-detected' });
+  }
+
+  const extraction = await deps.engine.run({
+    inputPath: analysed,
     outputPath: options.outputPath,
-    stages: workerStages,
+    stages: ['extract'],
+    segments,
+    speaker: selection.value,
   });
 
-  await deps.workspace.remove(decodeTarget);
+  await cleanUp();
 
-  if (!engineResult.ok) return engineResult;
-
-  // TODO(F3): the worker must be told which speaker to keep. That needs a
-  // second call — diarize, select here, then extract — or selection moved into
-  // the worker. For now the choice is reported, not acted upon.
-  const selection =
-    engineResult.value.segments.length > 0
-      ? dominantSpeakerSelector.select(engineResult.value.segments)
-      : null;
+  if (!extraction.ok) return extraction;
 
   return ok({
-    outputPath: engineResult.value.outputPath,
+    outputPath: extraction.value.outputPath,
     durationMs: decoded.value.durationMs,
-    speakerId: selection?.ok ? selection.value : null,
-    warnings: engineResult.value.warnings,
+    speakerId: selection.value,
+    warnings: [...warnings, ...extraction.value.warnings],
   });
 }

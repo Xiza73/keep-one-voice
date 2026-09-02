@@ -49,6 +49,7 @@ describe('describeError', () => {
       { kind: 'stage-failed', stage: 'denoise', detail: 'x' },
       { kind: 'silent-output', detail: 'x' },
       { kind: 'write-failed', detail: 'x' },
+      { kind: 'no-speech-detected' },
     ] as const;
 
     for (const error of errors) {

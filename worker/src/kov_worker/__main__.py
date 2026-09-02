@@ -25,7 +25,13 @@ def handle(line: str) -> Response:
         return Response(id="", ok=False, error={"kind": "protocol", "detail": str(exc)})
 
     try:
-        result = run_stages(request.input_path, request.output_path, request.stages)
+        result = run_stages(
+            request.input_path,
+            request.output_path,
+            request.stages,
+            segments=request.segments,
+            speaker=request.speaker,
+        )
     except StageError as exc:
         error: dict[str, Any] = {"kind": exc.kind, "detail": exc.detail}
         if exc.stage is not None:

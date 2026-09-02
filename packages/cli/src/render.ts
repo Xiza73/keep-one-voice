@@ -37,5 +37,7 @@ export function describeError(error: PipelineError): string {
       return `the pipeline produced a silent track, which means a stage destroyed the audio: ${error.detail}`;
     case 'write-failed':
       return `the result could not be written: ${error.detail}`;
+    case 'no-speech-detected':
+      return 'no speech was detected, so there is no voice to keep. Run the diarize stage before extract';
   }
 }
