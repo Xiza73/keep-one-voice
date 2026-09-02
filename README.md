@@ -129,6 +129,11 @@ Change one without the other and the pipeline breaks silently.
 
 ## Requirements
 
+The compiled binary does **not** embed the Python worker. It looks for it at
+run time — `KOV_WORKER_DIR`, then beside the executable, then the working
+directory — so a release is laid out as `bin/kov` next to `worker/`. Without it,
+only `--stages decode` works, and the error says exactly that.
+
 | Requirement | Why |
 | ----------- | --- |
 | [Bun](https://bun.sh) 1.3+ | Runtime and package manager for the CLI |

@@ -4,14 +4,15 @@
  * pipeline and renders the result. No audio logic lives here.
  */
 
-import { resolve } from 'node:path';
 import { PIPELINE_STAGES, runPipeline } from '@kov/core';
 import { parseArgs } from './args.ts';
 import { createFfmpegDecoder } from './ffmpeg.ts';
 import { spawnRunner } from './process.ts';
 import { describeError } from './render.ts';
 import { formatTranscript } from './transcript.ts';
+import { VERSION } from './version.ts';
 import { createWorkerEngine } from './worker.ts';
+import { resolveWorkerDir, workerDirCandidates } from './workerdir.ts';
 import { createTempWorkspace } from './workspace.ts';
 
 const USAGE = `kov — keep one voice
@@ -31,8 +32,6 @@ Decoding always runs; --stages selects what happens after it.
 Transcription is off by default: it is slow, and most runs only want the audio.
 `;
 
-const DEFAULT_WORKER_DIR = resolve(import.meta.dir, '../../../worker');
-
 export async function main(argv: readonly string[]): Promise<number> {
   const parsed = parseArgs(argv);
 
@@ -49,11 +48,27 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   if (options.version) {
-    process.stdout.write('0.0.0\n');
+    process.stdout.write(`${VERSION}\n`);
     return 0;
   }
 
-  const workerDir = process.env.KOV_WORKER_DIR ?? DEFAULT_WORKER_DIR;
+  const worker = resolveWorkerDir(
+    workerDirCandidates({
+      env: process.env.KOV_WORKER_DIR,
+      execPath: process.execPath,
+      cwd: process.cwd(),
+      moduleDir: import.meta.dir,
+    }),
+  );
+
+  // Only decoding runs without the worker, so only then can a missing one be
+  // ignored. Failing here beats a confusing error from `uv` further down.
+  if (!worker.ok && options.stages.some((stage) => stage !== 'decode')) {
+    process.stderr.write(`error: ${worker.detail}\n`);
+    return 1;
+  }
+
+  const workerDir = worker.ok ? worker.path : '';
   const workspace = createTempWorkspace();
 
   try {

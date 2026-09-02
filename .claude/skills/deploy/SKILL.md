@@ -11,9 +11,29 @@ allowed-tools: Read, Edit, Bash(git status:*), Bash(git log:*), Bash(bun run:*),
 - **Se publica:** el binario `kov`, compilado con `bun build --compile` y
   adjunto a un GitHub Release.
 - **No se publica:** el worker de Python. Se instala desde el repositorio con
-  `uv sync --extra ml`.
+  los extras de la fase que se vaya a usar: `uv sync --extra denoise --extra
+  separate --extra diarize --extra transcribe`.
 - **No se publica:** ningún peso de modelo. Se descargan bajo demanda desde
   Hugging Face.
+
+## Disposición de la distribución
+
+El binario **no lleva el worker dentro**. Lo busca en tiempo de ejecución, en
+este orden: `KOV_WORKER_DIR`, junto al ejecutable (`<dir>/../worker` y
+`<dir>/worker`), y el directorio de trabajo. Si no lo encuentra, falla nombrando
+la variable y listando dónde buscó.
+
+Un release debe entregarse con esta forma, o el binario solo sirve para
+`--stages decode`:
+
+```
+kov-0.1.0/
+├── bin/kov
+└── worker/
+```
+
+**Compruébalo siempre desde fuera del repositorio.** Ejecutado dentro del
+checkout el binario encuentra el worker por accidente y el fallo no aparece.
 
 ## Requisitos del entorno de destino
 

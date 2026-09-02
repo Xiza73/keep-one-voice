@@ -9,6 +9,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Scratch files left behind by `bun build --compile`
+*.bun-build
+
 # Claude Code — personal overrides
 CLAUDE.local.md
 .claude/settings.local.json

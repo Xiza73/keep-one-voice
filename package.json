@@ -1,6 +1,6 @@
 {
   "name": "keep-one-voice",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Isolate the main voice from an audio recording by removing noise, music and secondary speakers.",

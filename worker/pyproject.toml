@@ -1,6 +1,6 @@
 [project]
 name = "kov-worker"
-version = "0.0.0"
+version = "0.1.0"
 description = "Machine learning worker for keep-one-voice: denoise, source separation, diarization and target speaker extraction."
 # Capped below 3.13: torch, demucs and pyannote wheels lag new CPython releases,
 # and uv otherwise picks the newest interpreter on the machine.
