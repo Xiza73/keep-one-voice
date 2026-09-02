@@ -3,12 +3,13 @@
 Isolate the main voice from an audio recording by removing background noise,
 music and secondary speakers.
 
-> **Status: F1 complete.** `kov` decodes to mono 48 kHz and removes background
-> noise with DeepFilterNet 3, measured at **+12.0 dB** SI-SDR on broadband noise
-> and **+10.7 dB** on mains hum. `separate`, `diarize` and `extract` are not
-> implemented yet: they pass the audio through unchanged and say so on stderr.
-> See [Measuring quality](#measuring-quality) for the numbers and the known
-> weakness.
+> **Status: F2 complete.** `kov` decodes to mono 48 kHz, removes background
+> noise with DeepFilterNet 3, and pulls the voice out of a mix with Demucs v4.
+> Measured at **+11.8 to +13.5 dB** SI-SDR across every interference type in the
+> corpus. `diarize` and `extract` are not implemented yet: they pass the audio
+> through unchanged and say so on stderr. See
+> [Measuring quality](#measuring-quality) — the F2 result is not the one anyone
+> expected.
 
 ## The problem
 
@@ -42,7 +43,7 @@ flowchart LR
 | ----- | ------------ | ------ |
 | `decode` | Container to PCM mono 48 kHz | FFmpeg |
 | `denoise` | Remove background noise | DeepFilterNet 3 |
-| `separate` | Split voice from music and instruments | Demucs v4 |
+| `separate` | Split voice from music and instruments | Demucs v4 (`htdemucs`) |
 | `diarize` | Find who speaks when | pyannote 3.1 |
 | `extract` | Keep only the target speaker | — |
 
@@ -112,7 +113,8 @@ Model dependencies are optional and split per phase, so working on one stage
 does not drag in the model stack of the others:
 
 ```bash
-cd worker && uv sync --extra denoise     # F1: DeepFilterNet 3
+cd worker && uv sync --extra denoise      # F1: DeepFilterNet 3
+cd worker && uv sync --extra separate     # F2: Demucs v4
 ```
 
 Then:
@@ -160,24 +162,39 @@ corpus:
 The gain is largest where the noise is worst, which is what a denoiser should
 do: +15 dB at 0 dB SNR, around +7 dB at 20 dB SNR.
 
-### Known weakness: low voices against low-frequency noise
+### F2 results, and a surprise
 
-The brown-noise average hides the real finding. Broken down by speaker:
+Both pipelines were run over the same 48 files, 48 of 48 processed, 0 failures:
 
-| Speaker | Mean gain on brown noise |
-| ------- | ------------------------ |
-| en-female | +10.0 dB |
-| es-female | +1.8 dB |
-| **en-male** | **+0.4 dB** |
+| Interference | denoise only | denoise + separate | Effect of F2 |
+| ------------ | ------------ | ------------------ | ------------ |
+| music | +8.38 dB | +8.44 dB | **+0.06** |
+| brown | +4.07 dB | **+11.21 dB** | **+7.14** |
+| hum | +10.69 dB | **+13.49 dB** | **+2.80** |
+| white | +12.01 dB | +11.76 dB | −0.25 |
 
-The male voice gains essentially nothing against brown noise, at every SNR
-tested. Brown noise concentrates its energy in the low band, which is where a
-low-pitched voice keeps its fundamental — the model cannot pull them apart.
+**F2 does almost nothing for the job it was built for, and solves a problem it
+was not aimed at.** Adding Demucs gains 0.06 dB on music. It gains 7.14 dB on
+low-frequency noise — which is precisely where F1 was documented as weak.
 
-Treat this as a signal to investigate, not a proven defect: the corpus uses
-synthesised speech, and macOS's `Fred` has unusual spectral characteristics.
-Confirming it needs real recordings of low-pitched voices in traffic or engine
-noise.
+The mechanism fits: `htdemucs` has a dedicated `bass` stem, so it routes
+low-frequency energy away from `vocals`. DeepFilterNet has no such structure and
+cannot separate a low rumble from a low voice.
+
+The male voice, which gained nothing from F1 against brown noise, is recovered:
+
+| Speaker | brown, F1 only | brown, F1 + F2 |
+| ------- | -------------- | -------------- |
+| en-female | +10.0 dB | +14.4 dB |
+| es-female | +1.8 dB | +10.7 dB |
+| **en-male** | **+0.4 dB** | **+8.5 dB** |
+
+**Do not read this as "Demucs is useless on music."** The corpus uses a
+synthesised chord loop, which is periodic and tonal — probably far easier for
+DeepFilterNet to remove than a real recording. The honest conclusion is that our
+music proxy is too easy to separate the two models, not that F2 has no value on
+real music. Confirming that needs licensed real music, which is out of scope for
+a corpus that ships in a public repository.
 
 ## Roadmap
 
@@ -186,7 +203,7 @@ debugging a four-stage pipeline all at once is not a plan.
 
 - [x] **F0** — Decode, spawn the worker, round-trip the protocol
 - [x] **F1** — Denoise a single voice against background noise
-- [ ] **F2** — Separate voice from music and instruments
+- [x] **F2** — Separate voice from music and instruments
 - [ ] **F3** — Diarize and extract the dominant speaker
 - [ ] **F4** — Optional transcription of the result
 

@@ -27,7 +27,15 @@ from numpy.typing import NDArray
 
 from kov_worker.metrics import mix_at_snr
 
-NOISE_KINDS: tuple[str, ...] = ("white", "brown", "hum")
+NOISE_KINDS: tuple[str, ...] = ("white", "brown", "hum", "music")
+
+# A plain I-vi-IV-V loop with a bass line and a beat. Synthetic on purpose:
+# nothing in this repository may carry someone else's copyright, and a seeded
+# generator keeps the corpus reproducible. It is a weaker test than real music,
+# which Demucs was trained on — see fixtures/README.md.
+MUSIC_ROOT_HZ = 110.0
+MUSIC_TEMPO_BPM = 96.0
+MUSIC_PROGRESSION: tuple[tuple[int, ...], ...] = ((0, 4, 7), (9, 12, 16), (5, 9, 12), (7, 11, 14))
 
 DEFAULT_SNR_LEVELS: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0)
 
@@ -114,14 +122,58 @@ def make_noise(
         brown = np.cumsum(white)
         return _normalise(brown - brown.mean())
 
+    t = np.arange(samples) / sample_rate
+
+    if kind == "music":
+        return _make_music(t, samples, white)
+
     # Mains hum: a strong fundamental with decaying harmonics, plus a whisper of
     # broadband noise so it is not a mathematically perfect tone.
-    t = np.arange(samples) / sample_rate
     hum = sum(
         amplitude * np.sin(2.0 * math.pi * MAINS_HZ * harmonic * t)
         for harmonic, amplitude in ((1, 1.0), (2, 0.4), (3, 0.2))
     )
     return _normalise(hum + 0.02 * white)
+
+
+def _make_music(
+    t: NDArray[np.float64],
+    samples: int,
+    white: NDArray[np.float64],
+) -> NDArray[np.float32]:
+    """A gated chord loop over a bass line and a beat."""
+    beat = 60.0 / MUSIC_TEMPO_BPM
+    bar = 4.0 * beat
+
+    bar_index = np.floor(t / bar).astype(int)
+    into_bar = t - bar_index * bar
+    chord_envelope = np.exp(-1.5 * into_bar)
+
+    track = np.zeros(samples)
+
+    for index, chord in enumerate(MUSIC_PROGRESSION):
+        active = (bar_index % len(MUSIC_PROGRESSION)) == index
+        root_hz = MUSIC_ROOT_HZ * 2.0 ** (chord[0] / 12.0)
+
+        # Bass an octave below the chord root: the band that overlaps a low voice.
+        track += active * 0.9 * chord_envelope * np.sin(math.pi * root_hz * t)
+
+        for semitone in chord:
+            freq = MUSIC_ROOT_HZ * 2.0 ** (semitone / 12.0)
+            for harmonic, amplitude in ((1, 1.0), (2, 0.35), (3, 0.15)):
+                track += (
+                    active
+                    * 0.2
+                    * amplitude
+                    * chord_envelope
+                    * np.sin(2.0 * math.pi * freq * harmonic * t)
+                )
+
+    # Percussion: a short broadband burst on every beat.
+    into_beat = t - np.floor(t / beat) * beat
+    track += 0.15 * np.exp(-45.0 * into_beat) * white
+
+    return _normalise(track)
 
 
 def _snr_tag(snr_db: float) -> str:

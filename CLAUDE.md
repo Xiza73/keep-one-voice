@@ -30,7 +30,7 @@ Depurar un pipeline de cuatro etapas a ciegas no es una opción.
 | ---- | ------- | -------------------- |
 | F0 | I/O: decodificar a PCM mono 48 kHz, escribir el resultado, contrato con el worker | FFmpeg |
 | F1 | Denoise: quitar ruido de fondo con una sola voz presente | DeepFilterNet 3 |
-| F2 | Separación de stems: voz contra música e instrumentos | Demucs v4 |
+| F2 | Separación de stems: voz contra música e instrumentos | Demucs v4 (`htdemucs`) |
 | F3 | Diarización + extracción del hablante dominante | pyannote 3.1 |
 | F4 (opcional) | Transcripción de la pista resultante | faster-whisper |
 
@@ -65,6 +65,7 @@ bun run setup:py         # crea el entorno de Python del worker (uv sync)
 # Los modelos son extras opcionales, separados por fase, para no arrastrar el
 # stack de una etapa mientras se trabaja en otra:
 cd worker && uv sync --extra denoise      # F1: DeepFilterNet 3
+cd worker && uv sync --extra separate     # F2: Demucs v4 (htdemucs)
 
 bun run dev              # ejecuta la CLI en desarrollo
 bun run build            # compila el binario en dist/kov

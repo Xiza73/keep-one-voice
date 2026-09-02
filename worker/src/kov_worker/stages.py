@@ -38,10 +38,11 @@ class StageResult:
 
 
 def default_implementations() -> dict[str, StageFn]:
-    """The stages that actually do something today. F2 to F4 are still absent."""
+    """The stages that actually do something today. F3 and F4 are still absent."""
     from kov_worker.denoise import denoise_samples
+    from kov_worker.separate import separate_samples
 
-    return {"denoise": denoise_samples}
+    return {"denoise": denoise_samples, "separate": separate_samples}
 
 
 def run_stages(
