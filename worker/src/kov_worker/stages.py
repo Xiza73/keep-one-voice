@@ -18,7 +18,7 @@ import numpy as np
 import soundfile as sf
 from numpy.typing import NDArray
 
-from kov_worker.protocol import SpeakerSegment, Stage
+from kov_worker.protocol import SpeakerSegment, Stage, TranscriptSegment
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,7 @@ class StageContext:
 class StageOutput:
     samples: NDArray[np.float32]
     segments: tuple[SpeakerSegment, ...] = ()
+    transcript: tuple[TranscriptSegment, ...] = ()
 
 
 StageFn = Callable[[NDArray[np.float32], StageContext], StageOutput]
@@ -55,6 +56,7 @@ class StageResult:
     output_path: str
     duration_ms: int
     segments: tuple[SpeakerSegment, ...]
+    transcript: tuple[TranscriptSegment, ...]
     warnings: tuple[str, ...]
 
 
@@ -104,12 +106,23 @@ def _extract(samples: NDArray[np.float32], context: StageContext) -> StageOutput
     )
 
 
+def _transcribe(samples: NDArray[np.float32], context: StageContext) -> StageOutput:
+    from kov_worker.transcribe import transcribe_samples
+
+    # Transcription reports text; like diarization, it must not touch the audio.
+    return StageOutput(
+        samples=samples,
+        transcript=transcribe_samples(samples, context.sample_rate),
+    )
+
+
 def default_implementations() -> dict[str, StageFn]:
     return {
         "denoise": _denoise,
         "separate": _separate,
         "diarize": _diarize,
         "extract": _extract,
+        "transcribe": _transcribe,
     }
 
 
@@ -130,6 +143,7 @@ def run_stages(
 
     had_signal = bool(np.any(samples))
     context = StageContext(sample_rate=sample_rate, segments=segments, speaker=speaker)
+    transcript: tuple[TranscriptSegment, ...] = ()
     warnings: list[str] = []
 
     for stage in stages:
@@ -151,6 +165,8 @@ def run_stages(
         samples = output.samples
         if output.segments:
             context = replace(context, segments=output.segments)
+        if output.transcript:
+            transcript = output.transcript
 
     if had_signal and not np.any(samples):
         raise StageError(
@@ -169,5 +185,6 @@ def run_stages(
         output_path=output_path,
         duration_ms=duration_ms,
         segments=context.segments,
+        transcript=transcript,
         warnings=tuple(warnings),
     )

@@ -10,6 +10,7 @@ import { parseArgs } from './args.ts';
 import { createFfmpegDecoder } from './ffmpeg.ts';
 import { spawnRunner } from './process.ts';
 import { describeError } from './render.ts';
+import { formatTranscript } from './transcript.ts';
 import { createWorkerEngine } from './worker.ts';
 import { createTempWorkspace } from './workspace.ts';
 
@@ -19,13 +20,15 @@ Usage:
   kov <input> [options]
 
 Options:
-  -o, --output <path>   Output file. Defaults to <input>.clean.wav
-  -s, --stages <list>   Comma separated stages to run.
-                        Available: ${PIPELINE_STAGES.join(', ')}
-  -h, --help            Show this message
-  -v, --version         Show the version
+  -o, --output <path>       Output file. Defaults to <input>.clean.wav
+  -t, --transcript <path>   Write a transcript. Defaults to <output>.txt
+  -s, --stages <list>       Comma separated stages to run.
+                            Available: ${PIPELINE_STAGES.join(', ')}
+  -h, --help                Show this message
+  -v, --version             Show the version
 
 Decoding always runs; --stages selects what happens after it.
+Transcription is off by default: it is slow, and most runs only want the audio.
 `;
 
 const DEFAULT_WORKER_DIR = resolve(import.meta.dir, '../../../worker');
@@ -78,6 +81,15 @@ export async function main(argv: readonly string[]): Promise<number> {
 
     if (result.value.speakerId !== null) {
       process.stderr.write(`speaker: kept ${result.value.speakerId}\n`);
+    }
+
+    if (options.transcript !== null) {
+      if (result.value.transcript.length > 0) {
+        await Bun.write(options.transcript, formatTranscript(result.value.transcript));
+        process.stderr.write(`transcript: ${options.transcript}\n`);
+      } else {
+        process.stderr.write('warning: no speech was transcribed, so no transcript was written\n');
+      }
     }
 
     process.stdout.write(`${result.value.outputPath}\n`);

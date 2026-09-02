@@ -43,6 +43,7 @@ def handle(line: str) -> Response:
         ok=True,
         output_path=result.output_path,
         segments=result.segments,
+        transcript=result.transcript,
         warnings=result.warnings,
     )
 

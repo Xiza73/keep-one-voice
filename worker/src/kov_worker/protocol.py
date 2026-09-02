@@ -13,12 +13,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-Stage = Literal["denoise", "separate", "diarize", "extract"]
+Stage = Literal["denoise", "separate", "diarize", "extract", "transcribe"]
 
 # `decode` is absent on purpose: FFmpeg is invoked from the CLI so that there is
 # a single process-spawning surface to audit, and so an unreadable file fails
 # before the model stack is ever imported.
-STAGES: tuple[Stage, ...] = ("denoise", "separate", "diarize", "extract")
+STAGES: tuple[Stage, ...] = ("denoise", "separate", "diarize", "extract", "transcribe")
 
 
 class ProtocolError(ValueError):
@@ -46,11 +46,19 @@ class SpeakerSegment:
 
 
 @dataclass(frozen=True)
+class TranscriptSegment:
+    start_ms: int
+    end_ms: int
+    text: str
+
+
+@dataclass(frozen=True)
 class Response:
     id: str
     ok: bool
     output_path: str | None = None
     segments: tuple[SpeakerSegment, ...] = ()
+    transcript: tuple[TranscriptSegment, ...] = ()
     warnings: tuple[str, ...] = ()
     error: dict[str, Any] | None = field(default=None)
 
@@ -134,6 +142,10 @@ def serialize_response(response: Response) -> str:
                 "mean_dbfs": segment.mean_dbfs,
             }
             for segment in response.segments
+        ]
+        payload["transcript"] = [
+            {"start_ms": line.start_ms, "end_ms": line.end_ms, "text": line.text}
+            for line in response.transcript
         ]
     else:
         payload["error"] = response.error or {"kind": "unknown"}
