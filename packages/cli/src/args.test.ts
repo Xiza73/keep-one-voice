@@ -23,13 +23,59 @@ describe('parseArgs', () => {
     if (result.ok) expect(result.value.output).toBe('voice.wav');
   });
 
-  test('runs every stage by default', () => {
+  test('runs every stage except transcription by default', () => {
     const result = parseArgs(['note.ogg']);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.stages).toEqual(['decode', 'denoise', 'separate', 'diarize', 'extract']);
     }
+  });
+
+  test('does not transcribe unless asked', () => {
+    const result = parseArgs(['note.ogg']);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.transcript).toBeNull();
+  });
+
+  test('asking for a transcript path implies the transcribe stage', () => {
+    const result = parseArgs(['note.ogg', '--transcript', 'words.txt']);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.stages).toContain('transcribe');
+      expect(result.value.transcript).toBe('words.txt');
+    }
+  });
+
+  test('asking for the transcribe stage derives a transcript path', () => {
+    const result = parseArgs(['interview.mp3', '--stages', 'decode,transcribe']);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.transcript).toBe('interview.clean.txt');
+  });
+
+  test('does not add transcribe twice when both are given', () => {
+    const result = parseArgs([
+      'note.ogg',
+      '--stages',
+      'decode,transcribe',
+      '--transcript',
+      'words.txt',
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.stages.filter((stage) => stage === 'transcribe')).toHaveLength(1);
+    }
+  });
+
+  test('rejects a transcript flag with no path', () => {
+    const result = parseArgs(['note.ogg', '--transcript']);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toBe('--transcript requires a path');
   });
 
   test('accepts a comma separated stage subset', () => {
@@ -40,10 +86,10 @@ describe('parseArgs', () => {
   });
 
   test('rejects an unknown stage', () => {
-    const result = parseArgs(['note.ogg', '--stages', 'decode,transcribe']);
+    const result = parseArgs(['note.ogg', '--stages', 'decode,translate']);
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toBe('unknown stage(s): transcribe');
+    if (!result.ok) expect(result.error.message).toBe('unknown stage(s): translate');
   });
 
   test('rejects a flag that is missing its value', () => {

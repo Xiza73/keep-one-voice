@@ -9,6 +9,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Scratch files left behind by `bun build --compile`
+*.bun-build
+
 # Claude Code — personal overrides
 CLAUDE.local.md
 .claude/settings.local.json
@@ -30,6 +33,9 @@ models/
 out/
 tmp/
 fixtures/out/
+
+# The test corpus is reproducible from a seed: generate it, never commit it
+fixtures/generated/
 
 # Tooling caches
 .ruff_cache/

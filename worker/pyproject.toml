@@ -1,22 +1,40 @@
 [project]
 name = "kov-worker"
-version = "0.0.0"
+version = "0.1.0"
 description = "Machine learning worker for keep-one-voice: denoise, source separation, diarization and target speaker extraction."
-requires-python = ">=3.11"
+# Capped below 3.13: torch, demucs and pyannote wheels lag new CPython releases,
+# and uv otherwise picks the newest interpreter on the machine.
+requires-python = ">=3.11,<3.13"
 dependencies = [
   "numpy>=1.26",
   "soundfile>=0.12.1",
 ]
 
-# Heavy model dependencies are optional so the scaffold installs in seconds.
-# Install them with: uv sync --extra ml
+# Model dependencies are optional and split per MVP phase, so working on one
+# stage does not drag in the model stack of the others.
+#   uv sync --extra denoise     # F1
+#   uv sync --extra separate    # F2
+#   uv sync --extra diarize     # F3
+#   uv sync --extra transcribe  # F4
 [project.optional-dependencies]
-ml = [
+denoise = [
+  # DeepFilterNet 0.5.6 imports `torchaudio.backend.common.AudioMetaData`, which
+  # torchaudio removed after 2.5. The package declares no torch constraint of its
+  # own, so resolvers happily pick a version that cannot import it — the ceiling
+  # has to live here. Verified working on 2.5.1.
+  "torch>=2.4,<2.6",
+  "torchaudio>=2.4,<2.6",
+  "deepfilternet>=0.5.6",
+]
+separate = [
   "torch>=2.4",
   "torchaudio>=2.4",
   "demucs>=4.0.1",
+]
+diarize = [
+  "torch>=2.4",
+  "torchaudio>=2.4",
   "pyannote.audio>=3.3.2",
-  "deepfilternet>=0.5.6",
 ]
 transcribe = [
   "faster-whisper>=1.0.3",
@@ -24,6 +42,8 @@ transcribe = [
 
 [project.scripts]
 kov-worker = "kov_worker.__main__:main"
+kov-fixtures = "kov_worker.fixtures:main"
+kov-eval = "kov_worker.evaluate:main"
 
 [dependency-groups]
 dev = [
@@ -44,12 +64,17 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM", "ANN", "RUF"]
+# S (flake8-bandit) is on because this worker spawns external processes and
+# reads files it did not create. Suppressions must be justified in place.
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "ANN", "RUF", "S"]
 ignore = ["ANN401"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ANN"]
+"tests/*" = ["ANN", "S101"]  # asserts are the point of a test
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "slow: loads a model or synthesises audio (deselect with -m 'not slow')",
+]
