@@ -59,6 +59,55 @@ class TestParseRequest:
             parse_request(valid_payload(stages=["decode"]))
 
 
+class TestRequestSegments:
+    """The extract call carries the segments and the speaker chosen in TypeScript."""
+
+    def test_defaults_to_no_segments_and_no_speaker(self):
+        request = parse_request(valid_payload())
+
+        assert request.segments == ()
+        assert request.speaker is None
+
+    def test_parses_the_chosen_speaker(self):
+        request = parse_request(valid_payload(speaker="SPEAKER_01"))
+
+        assert request.speaker == "SPEAKER_01"
+
+    def test_parses_segments(self):
+        payload = valid_payload(
+            segments=[
+                {"speaker_id": "SPEAKER_00", "start_ms": 0, "end_ms": 900, "mean_dbfs": -18.5}
+            ]
+        )
+
+        request = parse_request(payload)
+
+        assert request.segments == (SpeakerSegment("SPEAKER_00", 0, 900, -18.5),)
+
+    def test_rejects_segments_that_are_not_a_list(self):
+        with pytest.raises(ProtocolError, match="segments"):
+            parse_request(valid_payload(segments="SPEAKER_00"))
+
+    def test_rejects_a_segment_missing_a_field(self):
+        with pytest.raises(ProtocolError, match="segment"):
+            parse_request(valid_payload(segments=[{"speaker_id": "SPEAKER_00", "start_ms": 0}]))
+
+    def test_rejects_a_segment_with_a_non_numeric_boundary(self):
+        with pytest.raises(ProtocolError, match="segment"):
+            parse_request(
+                valid_payload(
+                    segments=[
+                        {
+                            "speaker_id": "SPEAKER_00",
+                            "start_ms": "soon",
+                            "end_ms": 900,
+                            "mean_dbfs": -18.5,
+                        }
+                    ]
+                )
+            )
+
+
 class TestSerializeResponse:
     def test_serializes_a_successful_response(self):
         response = Response(

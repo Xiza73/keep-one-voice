@@ -105,6 +105,17 @@ export function createWorkerEngine(runner: ProcessRunner, options: WorkerOptions
         input_path: request.inputPath,
         output_path: request.outputPath,
         stages: request.stages as readonly WorkerStage[],
+        ...(request.segments === undefined
+          ? {}
+          : {
+              segments: request.segments.map((segment) => ({
+                speaker_id: segment.speakerId,
+                start_ms: segment.startMs,
+                end_ms: segment.endMs,
+                mean_dbfs: segment.meanDbfs,
+              })),
+            }),
+        ...(request.speaker === undefined ? {} : { speaker: request.speaker }),
       };
 
       const outcome = await runner.run({

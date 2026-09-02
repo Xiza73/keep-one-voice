@@ -1,3 +1,11 @@
+"""Protocol-level tests for the worker entry point.
+
+Every stage now has an implementation, so there is no longer an "unimplemented"
+stage to lean on. These use `extract`, which is deliberately model-free: given
+segments and a speaker it is pure masking, so the protocol path is exercised end
+to end without loading a model, a token or a network.
+"""
+
 import json
 import math
 
@@ -20,13 +28,15 @@ def tone(tmp_path):
 
 
 def request_line(**overrides):
-    # `diarize` is deliberately unimplemented: these tests are about the
-    # protocol, and must not drag a model into a unit test.
     payload = {
         "id": "req-1",
         "input_path": "in.wav",
         "output_path": "out.wav",
-        "stages": ["diarize"],
+        "stages": ["extract"],
+        "segments": [
+            {"speaker_id": "SPEAKER_00", "start_ms": 0, "end_ms": 800, "mean_dbfs": -20.0}
+        ],
+        "speaker": "SPEAKER_00",
     }
     payload.update(overrides)
     return json.dumps(payload)
@@ -34,7 +44,7 @@ def request_line(**overrides):
 
 class TestHandle:
     def test_answers_a_valid_request_with_the_same_id(self, tone, tmp_path):
-        response = handle(request_line(input_path=str(tone), output_path=str(tmp_path / "out.wav")))
+        response = handle(request_line(input_path=str(tone), output_path=str(tmp_path / "o.wav")))
 
         assert response.id == "req-1"
         assert response.ok is True
@@ -46,16 +56,11 @@ class TestHandle:
 
         assert output.exists()
 
-    def test_reports_warnings_for_unimplemented_stages(self, tone, tmp_path):
-        response = handle(
-            request_line(
-                input_path=str(tone),
-                output_path=str(tmp_path / "out.wav"),
-                stages=["diarize", "extract"],
-            )
-        )
+    def test_echoes_the_segments_it_was_given(self, tone, tmp_path):
+        response = handle(request_line(input_path=str(tone), output_path=str(tmp_path / "o.wav")))
 
-        assert len(response.warnings) == 2
+        assert len(response.segments) == 1
+        assert response.segments[0].speaker_id == "SPEAKER_00"
 
     def test_answers_a_malformed_line_with_a_protocol_error(self):
         response = handle("{not json")
@@ -86,3 +91,17 @@ class TestHandle:
         )
 
         assert response.id == "req-42"
+
+    def test_extract_without_a_speaker_reports_which_stage_failed(self, tone, tmp_path):
+        response = handle(
+            request_line(
+                input_path=str(tone),
+                output_path=str(tmp_path / "out.wav"),
+                speaker=None,
+            )
+        )
+
+        assert response.ok is False
+        assert response.error is not None
+        assert response.error["kind"] == "no-speaker-chosen"
+        assert response.error["stage"] == "extract"

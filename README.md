@@ -3,13 +3,14 @@
 Isolate the main voice from an audio recording by removing background noise,
 music and secondary speakers.
 
-> **Status: F2 complete.** `kov` decodes to mono 48 kHz, removes background
-> noise with DeepFilterNet 3, and pulls the voice out of a mix with Demucs v4.
-> Measured at **+11.8 to +13.5 dB** SI-SDR across every interference type in the
-> corpus. `diarize` and `extract` are not implemented yet: they pass the audio
-> through unchanged and say so on stderr. See
-> [Measuring quality](#measuring-quality) — the F2 result is not the one anyone
-> expected.
+> **Status: F3 built, diarization not yet measured.** `kov` decodes to mono
+> 48 kHz, removes background noise with DeepFilterNet 3, pulls the voice out of
+> a mix with Demucs v4, and now diarizes and extracts a single speaker.
+> Denoising and separation are measured at **+11.8 to +13.5 dB** SI-SDR.
+> Diarization sits behind a manual gate — `pyannote/speaker-diarization-3.1`
+> needs its licence accepted and an `HF_TOKEN` — so it has **not** been run
+> against the corpus yet. Extraction is model-free and fully tested. See
+> [Measuring quality](#measuring-quality).
 
 ## The problem
 
@@ -63,6 +64,24 @@ longer or louder than the one you want, you get the wrong voice. Speaker
 selection lives behind a port (`SpeakerSelector`), so explicit selection and
 reference-sample matching can be added without touching the rest of the
 pipeline.
+
+### How a speaker is chosen
+
+Extraction runs as a **second worker call**, on purpose:
+
+1. `diarize` reports who speaks when. pyannote returns timestamps, not audio.
+2. The **domain layer** picks a voice — `dominantSpeakerSelector` in
+   `packages/core`, the port that has existed since the first design decision.
+3. `extract` receives the segments and the chosen speaker and masks the audio.
+
+The second call costs almost nothing because extraction needs no model: given
+segments and a speaker, keeping one voice is masking. That is what made keeping
+the decision in the domain layer affordable, rather than pushing it into the
+Python adapter where `--speaker <id>` would then have to follow it.
+
+Its honest limit: where two people talk at once, the mask keeps both. This is
+turn masking, not target-speaker separation. The corpus has overlap scenarios so
+that limit shows up as a number rather than a surprise.
 
 ## Architecture
 
@@ -221,7 +240,8 @@ debugging a four-stage pipeline all at once is not a plan.
 - [x] **F0** — Decode, spawn the worker, round-trip the protocol
 - [x] **F1** — Denoise a single voice against background noise
 - [x] **F2** — Separate voice from music and instruments
-- [ ] **F3** — Diarize and extract the dominant speaker
+- [ ] **F3** — Diarize and extract the dominant speaker — built and tested, but
+      diarization stays unmeasured until `HF_TOKEN` is set. Extraction is done.
 - [ ] **F4** — Optional transcription of the result
 
 Quality is judged with metrics (SI-SDR, PESQ) against a fixture corpus, not by

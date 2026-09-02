@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from kov_worker.stages import StageError, run_stages
+from kov_worker.protocol import SpeakerSegment
+from kov_worker.stages import StageError, StageOutput, run_stages
 
 
 @pytest.fixture
@@ -19,12 +20,16 @@ def tone(tmp_path):
     return path
 
 
-def halve(samples, _sample_rate):
-    return (samples * 0.5).astype(np.float32)
+def halve(samples, _context):
+    return StageOutput(samples=(samples * 0.5).astype(np.float32))
 
 
-def silence(samples, _sample_rate):
-    return np.zeros_like(samples)
+def silence(samples, _context):
+    return StageOutput(samples=np.zeros_like(samples))
+
+
+def segment(speaker: str, start_ms: int, end_ms: int) -> SpeakerSegment:
+    return SpeakerSegment(speaker, start_ms, end_ms, -20.0)
 
 
 class TestRunStages:
@@ -72,10 +77,8 @@ class TestRunStages:
         assert np.allclose(produced, original * 0.5, atol=1e-3)
 
     def test_does_not_warn_about_an_implemented_stage(self, tone, tmp_path):
-        output = tmp_path / "out.wav"
-
         result = run_stages(
-            str(tone), str(output), ("denoise",), implementations={"denoise": halve}
+            str(tone), str(tmp_path / "out.wav"), ("denoise",), implementations={"denoise": halve}
         )
 
         assert result.warnings == ()
@@ -83,13 +86,13 @@ class TestRunStages:
     def test_runs_stages_in_the_requested_order(self, tone, tmp_path):
         seen = []
 
-        def first(samples, _sr):
+        def first(samples, _context):
             seen.append("first")
-            return samples
+            return StageOutput(samples=samples)
 
-        def second(samples, _sr):
+        def second(samples, _context):
             seen.append("second")
-            return samples
+            return StageOutput(samples=samples)
 
         run_stages(
             str(tone),
@@ -115,7 +118,7 @@ class TestRunStages:
         assert np.allclose(produced, original * 0.25, atol=1e-3)
 
     def test_wraps_a_failing_stage_in_a_stage_error_that_names_it(self, tone, tmp_path):
-        def explode(_samples, _sr):
+        def explode(_samples, _context):
             raise RuntimeError("model weights are corrupt")
 
         with pytest.raises(StageError, match="denoise"):
@@ -130,11 +133,6 @@ class TestRunStages:
         result = run_stages(str(tone), str(tmp_path / "out.wav"), ("separate",), implementations={})
 
         assert result.duration_ms == pytest.approx(1_000, abs=2)
-
-    def test_returns_no_segments_while_diarization_is_unimplemented(self, tone, tmp_path):
-        result = run_stages(str(tone), str(tmp_path / "out.wav"), ("diarize",), implementations={})
-
-        assert result.segments == ()
 
     def test_raises_a_stage_error_when_the_input_is_missing(self, tmp_path):
         with pytest.raises(StageError, match="unreadable-input"):
@@ -159,4 +157,86 @@ class TestRunStages:
                 str(tmp_path / "out.wav"),
                 ("denoise",),
                 implementations={"denoise": silence},
+            )
+
+
+class TestSegmentsFlow:
+    """Diarization produces segments; extraction consumes them."""
+
+    def test_returns_the_segments_a_stage_produced(self, tone, tmp_path):
+        found = (segment("SPEAKER_00", 0, 500),)
+
+        def diarize(samples, _context):
+            return StageOutput(samples=samples, segments=found)
+
+        result = run_stages(
+            str(tone),
+            str(tmp_path / "out.wav"),
+            ("diarize",),
+            implementations={"diarize": diarize},
+        )
+
+        assert result.segments == found
+
+    def test_hands_produced_segments_to_a_later_stage(self, tone, tmp_path):
+        found = (segment("SPEAKER_00", 0, 500),)
+        seen = []
+
+        def diarize(samples, _context):
+            return StageOutput(samples=samples, segments=found)
+
+        def extract(samples, context):
+            seen.append(context.segments)
+            return StageOutput(samples=samples)
+
+        run_stages(
+            str(tone),
+            str(tmp_path / "out.wav"),
+            ("diarize", "extract"),
+            implementations={"diarize": diarize, "extract": extract},
+        )
+
+        assert seen == [found]
+
+    def test_passes_the_caller_supplied_segments_and_speaker_through(self, tone, tmp_path):
+        given = (segment("SPEAKER_01", 0, 500),)
+        seen = {}
+
+        def extract(samples, context):
+            seen["segments"] = context.segments
+            seen["speaker"] = context.speaker
+            return StageOutput(samples=samples)
+
+        run_stages(
+            str(tone),
+            str(tmp_path / "out.wav"),
+            ("extract",),
+            implementations={"extract": extract},
+            segments=given,
+            speaker="SPEAKER_01",
+        )
+
+        assert seen == {"segments": given, "speaker": "SPEAKER_01"}
+
+    def test_returns_the_caller_supplied_segments_when_nothing_diarizes(self, tone, tmp_path):
+        given = (segment("SPEAKER_01", 0, 500),)
+
+        result = run_stages(
+            str(tone),
+            str(tmp_path / "out.wav"),
+            ("extract",),
+            implementations={"extract": lambda samples, _ctx: StageOutput(samples=samples)},
+            segments=given,
+            speaker="SPEAKER_01",
+        )
+
+        assert result.segments == given
+
+    def test_extract_without_a_chosen_speaker_is_a_stage_error(self, tone, tmp_path):
+        with pytest.raises(StageError, match="speaker"):
+            run_stages(
+                str(tone),
+                str(tmp_path / "out.wav"),
+                ("extract",),
+                segments=(segment("SPEAKER_00", 0, 500),),
             )
