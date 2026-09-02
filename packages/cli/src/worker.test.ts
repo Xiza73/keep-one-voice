@@ -112,6 +112,83 @@ describe('createWorkerEngine', () => {
     }
   });
 
+  test('keeps the stage the worker reported on a stage failure', async () => {
+    const { runner } = scriptedRunner({
+      kind: 'exited',
+      code: 0,
+      stdout: responseLine({
+        id: 'req-1',
+        ok: false,
+        error: { kind: 'stage-failed', stage: 'separate', detail: 'out of memory' },
+      }),
+      stderr: '',
+    });
+
+    const result = await createWorkerEngine(runner, { workerDir: '/repo/worker' }).run(request);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.error.kind === 'stage-failed') {
+      expect(result.error.stage).toBe('separate');
+      expect(result.error.detail).toBe('out of memory');
+    } else {
+      throw new Error('expected a stage-failed error');
+    }
+  });
+
+  test('treats an unrecognised stage name as a contract mismatch', async () => {
+    const { runner } = scriptedRunner({
+      kind: 'exited',
+      code: 0,
+      stdout: responseLine({
+        id: 'req-1',
+        ok: false,
+        error: { kind: 'stage-failed', stage: 'transcribe', detail: 'boom' },
+      }),
+      stderr: '',
+    });
+
+    const result = await createWorkerEngine(runner, { workerDir: '/repo/worker' }).run(request);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe('worker-unavailable');
+  });
+
+  test('maps a silent output onto the domain error', async () => {
+    const { runner } = scriptedRunner({
+      kind: 'exited',
+      code: 0,
+      stdout: responseLine({
+        id: 'req-1',
+        ok: false,
+        error: { kind: 'silent-output', detail: 'after: denoise' },
+      }),
+      stderr: '',
+    });
+
+    const result = await createWorkerEngine(runner, { workerDir: '/repo/worker' }).run(request);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe('silent-output');
+  });
+
+  test('maps a write failure onto the domain error', async () => {
+    const { runner } = scriptedRunner({
+      kind: 'exited',
+      code: 0,
+      stdout: responseLine({
+        id: 'req-1',
+        ok: false,
+        error: { kind: 'write-failed', detail: 'no space left on device' },
+      }),
+      stderr: '',
+    });
+
+    const result = await createWorkerEngine(runner, { workerDir: '/repo/worker' }).run(request);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe('write-failed');
+  });
+
   test('reports worker-unavailable when uv is not installed', async () => {
     const { runner } = scriptedRunner({ kind: 'not-found' });
 

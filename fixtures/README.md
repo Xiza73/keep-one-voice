@@ -49,15 +49,45 @@ acondicionado: integral del ruido blanco, pendiente de −6 dB por octava) y `hu
 **Requisitos.** El generador usa `say`, así que **solo funciona en macOS**, y
 `ffmpeg` para convertir a PCM. Ambos fallan con un mensaje accionable si faltan.
 
-## Línea base
+El corpus se genera a **48 kHz**, la frecuencia del pipeline. Ojo con esto: `say`
+sintetiza a una frecuencia menor, así que la voz del corpus no tiene banda alta
+real. Sirve para comparar denoisers entre sí; no sirve para afirmar cómo suena
+el resultado sobre una grabación real de banda completa.
 
-Medida el 2026-09-01, sin ninguna etapa de limpieza implementada:
+## Resultados
 
-| Ruido | Archivos | SI-SDR base |
-| ----- | -------- | ----------- |
-| white | 12 | +8.75 dB |
-| brown | 12 | +8.75 dB |
-| hum | 12 | +8.76 dB |
+Medidos el 2026-09-01. La base es sin ninguna etapa de limpieza; la ganancia es
+DeepFilterNet 3 sobre el corpus completo.
+
+| Ruido | Archivos | SI-SDR base | Ganancia F1 |
+| ----- | -------- | ----------- | ----------- |
+| white | 12 | +8.75 dB | **+12.01 dB** |
+| hum | 12 | +8.76 dB | **+10.69 dB** |
+| brown | 12 | +8.75 dB | **+4.07 dB** |
+
+### Limitación conocida: voces graves con ruido de baja frecuencia
+
+El promedio de `brown` esconde el hallazgo importante. Desglosado por hablante:
+
+| Hablante | Ganancia media con `brown` |
+| -------- | -------------------------- |
+| en-female | +10.0 dB |
+| es-female | +1.8 dB |
+| **en-male** | **+0.4 dB** |
+
+La voz masculina **no mejora prácticamente nada** con ruido marrón, en ningún
+SNR probado (+0.35, +0.35, +0.43, +0.62 dB). El ruido marrón concentra energía
+en graves, justo donde una voz grave tiene su fundamental, y el modelo no las
+separa.
+
+Trátalo como una señal a investigar, no como un defecto probado: el corpus usa
+voz sintetizada, y `Fred` de macOS tiene características espectrales atípicas.
+Confirmarlo exige grabaciones reales de voces graves con ruido de tráfico o
+motor.
+
+Este hallazgo es la razón de ser del corpus. Sin él, F1 se habría publicado como
+"DeepFilterNet funciona bien" y el fallo habría aparecido en producción, en el
+caso de uso más común que existe: alguien grabando dentro de un auto.
 
 Dos comprobaciones respaldan estos números:
 

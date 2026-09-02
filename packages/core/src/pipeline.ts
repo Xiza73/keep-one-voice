@@ -26,8 +26,13 @@ export const WORKER_STAGES: readonly WorkerStage[] = [
   'extract',
 ] as const;
 
-/** Every model in the pipeline expects mono PCM at this rate. */
-export const DEFAULT_SAMPLE_RATE = 16_000;
+/**
+ * The pipeline works at 48 kHz because DeepFilterNet3 does, and decoding to a
+ * lower rate first would throw away the band it is meant to clean. Stages that
+ * need less — diarization runs at 16 kHz — resample on their own side; they
+ * produce timestamps, so their rate must not constrain the audio anyone hears.
+ */
+export const DEFAULT_SAMPLE_RATE = 48_000;
 export const DEFAULT_CHANNELS = 1;
 
 // --- Decoder port -----------------------------------------------------------
@@ -75,6 +80,8 @@ export type EngineError =
   | { kind: 'model-gated'; model: string }
   | { kind: 'stage-failed'; stage: WorkerStage; detail: string }
   | { kind: 'unreadable-input'; detail: string }
+  | { kind: 'silent-output'; detail: string }
+  | { kind: 'write-failed'; detail: string }
   | { kind: 'timeout' };
 
 export interface VoiceEngine {

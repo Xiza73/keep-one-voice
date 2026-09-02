@@ -7,6 +7,7 @@ is noise the CLI has to skip past.
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 from kov_worker.protocol import (
     ProtocolError,
@@ -26,11 +27,10 @@ def handle(line: str) -> Response:
     try:
         result = run_stages(request.input_path, request.output_path, request.stages)
     except StageError as exc:
-        return Response(
-            id=request.id,
-            ok=False,
-            error={"kind": exc.kind, "detail": exc.detail},
-        )
+        error: dict[str, Any] = {"kind": exc.kind, "detail": exc.detail}
+        if exc.stage is not None:
+            error["stage"] = exc.stage
+        return Response(id=request.id, ok=False, error=error)
 
     return Response(
         id=request.id,

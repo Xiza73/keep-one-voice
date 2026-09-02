@@ -3,10 +3,12 @@
 Isolate the main voice from an audio recording by removing background noise,
 music and secondary speakers.
 
-> **Status: F0 complete.** `kov` decodes any container FFmpeg understands into
-> mono 16 kHz WAV and round-trips it through the Python worker. No cleaning
-> stage exists yet: `denoise`, `separate`, `diarize` and `extract` pass the
-> audio through unchanged and say so on stderr. See [Roadmap](#roadmap).
+> **Status: F1 complete.** `kov` decodes to mono 48 kHz and removes background
+> noise with DeepFilterNet 3, measured at **+12.0 dB** SI-SDR on broadband noise
+> and **+10.7 dB** on mains hum. `separate`, `diarize` and `extract` are not
+> implemented yet: they pass the audio through unchanged and say so on stderr.
+> See [Measuring quality](#measuring-quality) for the numbers and the known
+> weakness.
 
 ## The problem
 
@@ -38,8 +40,8 @@ flowchart LR
 
 | Stage | What it does | Engine |
 | ----- | ------------ | ------ |
-| `decode` | Container to PCM mono 16 kHz | FFmpeg |
-| `denoise` | Remove background noise | DeepFilterNet |
+| `decode` | Container to PCM mono 48 kHz | FFmpeg |
+| `denoise` | Remove background noise | DeepFilterNet 3 |
 | `separate` | Split voice from music and instruments | Demucs v4 |
 | `diarize` | Find who speaks when | pyannote 3.1 |
 | `extract` | Keep only the target speaker | — |
@@ -106,11 +108,11 @@ bun install          # TypeScript dependencies
 bun run setup:py     # Python worker environment (uv sync)
 ```
 
-The heavy model dependencies are optional so the scaffold installs in seconds.
-Pull them in when you start working on a model stage:
+Model dependencies are optional and split per phase, so working on one stage
+does not drag in the model stack of the others:
 
 ```bash
-cd worker && uv sync --extra ml
+cd worker && uv sync --extra denoise     # F1: DeepFilterNet 3
 ```
 
 Then:
@@ -138,14 +140,44 @@ at exact SNRs — because SI-SDR needs a clean reference and a real-world
 recording does not have one. It is reproducible from the seed, so it is
 generated rather than committed.
 
-The current baseline, with no cleaning stage implemented, is **+8.75 dB**
-averaged over all noise types. Every stage from F1 onwards has to beat it.
-
 Run `kov` over `fixtures/generated/noisy/`, then score the output:
 
 ```bash
-bun run eval -- --processed <output-dir>
+bun run eval --processed <output-dir>
 ```
+
+### F1 results
+
+Baseline is +8.75 dB SI-SDR with no cleaning. DeepFilterNet 3 over the whole
+corpus:
+
+| Noise | Mean gain |
+| ----- | --------- |
+| white (hiss, fans) | **+12.01 dB** |
+| hum (50 Hz mains) | **+10.69 dB** |
+| brown (traffic, air conditioning) | **+4.07 dB** |
+
+The gain is largest where the noise is worst, which is what a denoiser should
+do: +15 dB at 0 dB SNR, around +7 dB at 20 dB SNR.
+
+### Known weakness: low voices against low-frequency noise
+
+The brown-noise average hides the real finding. Broken down by speaker:
+
+| Speaker | Mean gain on brown noise |
+| ------- | ------------------------ |
+| en-female | +10.0 dB |
+| es-female | +1.8 dB |
+| **en-male** | **+0.4 dB** |
+
+The male voice gains essentially nothing against brown noise, at every SNR
+tested. Brown noise concentrates its energy in the low band, which is where a
+low-pitched voice keeps its fundamental — the model cannot pull them apart.
+
+Treat this as a signal to investigate, not a proven defect: the corpus uses
+synthesised speech, and macOS's `Fred` has unusual spectral characteristics.
+Confirming it needs real recordings of low-pitched voices in traffic or engine
+noise.
 
 ## Roadmap
 
@@ -153,7 +185,7 @@ Built in layers. Each phase ships and is measured before the next one starts —
 debugging a four-stage pipeline all at once is not a plan.
 
 - [x] **F0** — Decode, spawn the worker, round-trip the protocol
-- [ ] **F1** — Denoise a single voice against background noise
+- [x] **F1** — Denoise a single voice against background noise
 - [ ] **F2** — Separate voice from music and instruments
 - [ ] **F3** — Diarize and extract the dominant speaker
 - [ ] **F4** — Optional transcription of the result

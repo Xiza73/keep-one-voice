@@ -47,6 +47,8 @@ describe('describeError', () => {
       { kind: 'worker-unavailable', detail: 'x' },
       { kind: 'model-gated', model: 'x' },
       { kind: 'stage-failed', stage: 'denoise', detail: 'x' },
+      { kind: 'silent-output', detail: 'x' },
+      { kind: 'write-failed', detail: 'x' },
     ] as const;
 
     for (const error of errors) {

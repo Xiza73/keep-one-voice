@@ -31,7 +31,9 @@ NOISE_KINDS: tuple[str, ...] = ("white", "brown", "hum")
 
 DEFAULT_SNR_LEVELS: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0)
 
-DEFAULT_SAMPLE_RATE = 16_000
+# Matches the pipeline rate. DeepFilterNet3 runs at 48 kHz, and decoding to a
+# lower rate first would destroy the band it is meant to work on.
+DEFAULT_SAMPLE_RATE = 48_000
 
 MAINS_HZ = 50.0
 
