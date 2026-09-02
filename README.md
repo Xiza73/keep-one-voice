@@ -83,12 +83,8 @@ By default `kov` keeps the **dominant** speaker: the one with the most total
 speaking time, breaking ties by mean loudness.
 
 This is a heuristic and it will be wrong sometimes — if the other person talks
-longer or louder than the one you want, you get the wrong voice. Speaker
-selection lives behind a port (`SpeakerSelector`), so explicit selection and
-reference-sample matching can be added without touching the rest of the
-pipeline.
-
-### How a speaker is chosen
+longer or louder than the one you want, you get the wrong voice. Two scenarios
+in the test corpus exist to keep that failure measurable rather than surprising.
 
 Extraction runs as a **second worker call**, on purpose:
 
@@ -123,9 +119,28 @@ only exists in Python, while the CLI is far more pleasant to build and ship in
 TypeScript.
 
 The riskiest part of this codebase is the contract between the two, defined
-twice: in [`packages/core/src/index.ts`](packages/core/src/index.ts) and in
+twice: in [`packages/core/src/pipeline.ts`](packages/core/src/pipeline.ts) and in
 [`worker/src/kov_worker/protocol.py`](worker/src/kov_worker/protocol.py).
 Change one without the other and the pipeline breaks silently.
+
+## Install
+
+Download the [latest release](https://github.com/Xiza73/keep-one-voice/releases/latest)
+— macOS on Apple Silicon. Any other platform builds from source; see
+[Development](#development).
+
+```bash
+tar -xzf kov-0.1.0-darwin-arm64.tar.gz
+cd kov-0.1.0
+cd worker && uv sync --extra denoise --extra separate && cd ..
+./bin/kov interview.mp3 -o clean.wav
+```
+
+`bin/kov` and `worker/` must stay next to each other. Every release publishes a
+checksum; verify it before running anything you downloaded.
+
+The [changelog](CHANGELOG.md) lists what is in each release, and what each one
+still cannot do.
 
 ## Requirements
 
