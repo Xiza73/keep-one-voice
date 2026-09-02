@@ -42,9 +42,20 @@ queda definida.
 No responde "¿suena bien para una persona". La segunda pregunta también importa,
 pero no pertenece a una comprobación automática.
 
-**Tipos de ruido.** `white` (siseo de cinta, ventilador), `brown` (tráfico, aire
-acondicionado: integral del ruido blanco, pendiente de −6 dB por octava) y `hum`
-(zumbido de red a 50 Hz con armónicos).
+**Tipos de interferencia.**
+
+| Tipo | Qué simula | Cómo se genera |
+| ---- | ---------- | -------------- |
+| `white` | Siseo de cinta, ventilador | Ruido gaussiano |
+| `brown` | Tráfico, aire acondicionado | Integral del blanco, −6 dB por octava |
+| `hum` | Zumbido de red eléctrica | 50 Hz con armónicos |
+| `music` | Música de fondo (F2) | Progresión I–vi–IV–V con bajo y percusión |
+
+La pista de música es **sintética a propósito**: nada en este repositorio puede
+llevar derechos de autor ajenos, y un generador con semilla mantiene el corpus
+reproducible. Es un test más débil que música real, que es con lo que Demucs fue
+entrenado. Sirve para comparar separadores entre sí; no para afirmar cuánto
+mejora sobre una canción de verdad.
 
 **Requisitos.** El generador usa `say`, así que **solo funciona en macOS**, y
 `ffmpeg` para convertir a PCM. Ambos fallan con un mensaje accionable si faltan.
@@ -65,29 +76,50 @@ DeepFilterNet 3 sobre el corpus completo.
 | hum | 12 | +8.76 dB | **+10.69 dB** |
 | brown | 12 | +8.75 dB | **+4.07 dB** |
 
-### Limitación conocida: voces graves con ruido de baja frecuencia
+### F2: el resultado que nadie esperaba
 
-El promedio de `brown` esconde el hallazgo importante. Desglosado por hablante:
+Las dos configuraciones se midieron sobre los mismos 48 archivos, 48 de 48
+procesados, cero fallos:
 
-| Hablante | Ganancia media con `brown` |
-| -------- | -------------------------- |
-| en-female | +10.0 dB |
-| es-female | +1.8 dB |
-| **en-male** | **+0.4 dB** |
+| Interferencia | Solo denoise | Denoise + separate | Efecto de F2 |
+| ------------- | ------------ | ------------------ | ------------ |
+| music | +8.38 dB | +8.44 dB | **+0.06** |
+| brown | +4.07 dB | **+11.21 dB** | **+7.14** |
+| hum | +10.69 dB | **+13.49 dB** | **+2.80** |
+| white | +12.01 dB | +11.76 dB | −0.25 |
 
-La voz masculina **no mejora prácticamente nada** con ruido marrón, en ningún
-SNR probado (+0.35, +0.35, +0.43, +0.62 dB). El ruido marrón concentra energía
-en graves, justo donde una voz grave tiene su fundamental, y el modelo no las
-separa.
+**F2 casi no aporta en aquello para lo que se construyó, y resuelve un problema
+al que no apuntaba.** Sobre música gana 0.06 dB. Sobre ruido de baja frecuencia
+gana 7.14 dB, que es exactamente donde F1 quedó documentado como débil.
 
-Trátalo como una señal a investigar, no como un defecto probado: el corpus usa
-voz sintetizada, y `Fred` de macOS tiene características espectrales atípicas.
-Confirmarlo exige grabaciones reales de voces graves con ruido de tráfico o
-motor.
+El mecanismo encaja: `htdemucs` tiene un stem dedicado de `bass`, así que desvía
+la energía grave fuera de `vocals`. DeepFilterNet no tiene esa estructura y no
+puede separar un retumbe grave de una voz grave.
 
-Este hallazgo es la razón de ser del corpus. Sin él, F1 se habría publicado como
-"DeepFilterNet funciona bien" y el fallo habría aparecido en producción, en el
-caso de uso más común que existe: alguien grabando dentro de un auto.
+La voz masculina, que con F1 no ganaba nada contra ruido marrón, se recupera:
+
+| Hablante | brown, solo F1 | brown, F1 + F2 |
+| -------- | -------------- | -------------- |
+| en-female | +10.0 dB | +14.4 dB |
+| es-female | +1.8 dB | +10.7 dB |
+| **en-male** | **+0.4 dB** | **+8.5 dB** |
+
+**No leas esto como "Demucs no sirve con música".** El corpus usa una progresión
+de acordes sintética: periódica y tonal, probablemente mucho más fácil de quitar
+para DeepFilterNet que una grabación real. La conclusión honesta es que nuestro
+sustituto de música es demasiado fácil para distinguir a los dos modelos, no que
+F2 carezca de valor sobre música real. Confirmarlo exigiría música con licencia,
+fuera del alcance de un corpus que vive en un repositorio público.
+
+### Por qué existe este corpus
+
+Sin medición, F1 se habría publicado como "DeepFilterNet funciona bien" y el
+fallo con voces graves habría aparecido en producción. Y F2 se habría publicado
+como "separa la música", cuando su valor medible hoy es otro completamente
+distinto.
+
+En los dos casos, el promedio agregado escondía el hallazgo. **Desglosa siempre
+por hablante y por tipo de interferencia.**
 
 Dos comprobaciones respaldan estos números:
 

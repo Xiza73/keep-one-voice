@@ -24,6 +24,22 @@ def dominant_frequency(signal: np.ndarray, sample_rate: int) -> float:
     return float(freqs[int(np.argmax(spectrum))])
 
 
+def spectral_flatness(signal: np.ndarray) -> float:
+    """Near 1.0 for noise, near 0.0 for a tonal signal."""
+    spectrum = np.abs(np.fft.rfft(signal)) + 1e-12
+    return float(np.exp(np.mean(np.log(spectrum))) / np.mean(spectrum))
+
+
+def envelope_variation(signal: np.ndarray, sample_rate: int) -> float:
+    """How much the loudness moves over time, relative to its own mean."""
+    window = sample_rate // 100
+    frames = len(signal) // window
+    envelope = np.array(
+        [np.sqrt(np.mean(signal[i * window : (i + 1) * window] ** 2)) for i in range(frames)]
+    )
+    return float(np.std(envelope) / (np.mean(envelope) + 1e-12))
+
+
 class TestMakeNoise:
     @pytest.mark.parametrize("kind", NOISE_KINDS)
     def test_returns_the_requested_number_of_samples(self, kind):
@@ -71,6 +87,37 @@ class TestMakeNoise:
     def test_rejects_an_unknown_kind(self):
         with pytest.raises(FixtureError, match="unknown noise kind"):
             make_noise("thunderstorm", 100, SAMPLE_RATE, np.random.default_rng(0))
+
+
+class TestMusic:
+    """F2 separates voice from music, so the corpus needs music to measure it."""
+
+    def test_music_is_tonal_where_white_noise_is_flat(self):
+        # Not a pure tone: the beat is broadband on purpose, exactly as real
+        # percussion is. What matters is a clear gap against noise, around
+        # 0.45 versus 0.85 in practice.
+        music = make_noise("music", 4 * SAMPLE_RATE, SAMPLE_RATE, np.random.default_rng(2))
+        white = make_noise("white", 4 * SAMPLE_RATE, SAMPLE_RATE, np.random.default_rng(2))
+
+        assert spectral_flatness(music) < spectral_flatness(white) / 1.5
+
+    def test_music_has_rhythm_where_white_noise_is_steady(self):
+        music = make_noise("music", 4 * SAMPLE_RATE, SAMPLE_RATE, np.random.default_rng(2))
+        white = make_noise("white", 4 * SAMPLE_RATE, SAMPLE_RATE, np.random.default_rng(2))
+
+        assert envelope_variation(music, SAMPLE_RATE) > envelope_variation(white, SAMPLE_RATE)
+
+    def test_music_carries_bass_below_the_speech_range(self):
+        music = make_noise("music", 4 * SAMPLE_RATE, SAMPLE_RATE, np.random.default_rng(2))
+
+        spectrum = np.abs(np.fft.rfft(music))
+        freqs = np.fft.rfftfreq(len(music), 1.0 / SAMPLE_RATE)
+        bass = spectrum[(freqs > 40) & (freqs < 160)].sum()
+
+        assert bass / spectrum.sum() > 0.05
+
+    def test_music_is_included_in_the_corpus_kinds(self):
+        assert "music" in NOISE_KINDS
 
 
 class TestPlanCorpus:
