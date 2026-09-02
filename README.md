@@ -142,6 +142,23 @@ at exact SNRs — because SI-SDR needs a clean reference and a real-world
 recording does not have one. It is reproducible from the seed, so it is
 generated rather than committed.
 
+It holds two kinds of material: 48 single-voice mixtures against white, brown,
+mains hum and music, and 5 multi-speaker conversations for F3. Each conversation
+ships every speaker's own contribution to the timeline, the turn boundaries, and
+**two** answers to "which voice do we keep" — the one the automatic heuristic
+will choose, and the one a person actually wants.
+
+Two of the five scenarios are built so those disagree, because the dominant
+speaker heuristic is documented as failing when the other person talks longer or
+louder. `bun run eval` prints which scenarios it aims at the wrong voice in:
+
+```
+two-hard-duration    en-female   en-male      NO     +3.12
+two-hard-loudness    en-female   en-male      NO     -0.18
+```
+
+That failure is measured rather than discovered by a user.
+
 Run `kov` over `fixtures/generated/noisy/`, then score the output:
 
 ```bash

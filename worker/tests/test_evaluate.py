@@ -10,6 +10,7 @@ from kov_worker.evaluate import (
     EvalRow,
     align,
     evaluate,
+    evaluate_conversations,
     summarize,
 )
 
@@ -114,6 +115,109 @@ class TestEvaluate:
     def test_rejects_a_corpus_without_a_manifest(self, tmp_path):
         with pytest.raises(EvalError, match="manifest"):
             evaluate(tmp_path)
+
+
+@pytest.fixture
+def conversation_corpus(tmp_path):
+    """Two speakers on one timeline, plus the ground truth about who is who."""
+    wanted = RNG.normal(0.0, 0.2, SAMPLE_RATE).astype(np.float32)
+    other = RNG.normal(0.0, 0.2, SAMPLE_RATE).astype(np.float32)
+
+    write_wav(tmp_path / "conversations" / "chat_wanted.wav", wanted)
+    write_wav(tmp_path / "conversations" / "chat_other.wav", other)
+    write_wav(tmp_path / "conversations" / "chat.wav", wanted + other)
+
+    manifest = {
+        "sample_rate": SAMPLE_RATE,
+        "seed": 1,
+        "entries": [],
+        "conversations": [
+            {
+                "key": "chat",
+                "mixture": "conversations/chat.wav",
+                "references": {
+                    "wanted": "conversations/chat_wanted.wav",
+                    "other": "conversations/chat_other.wav",
+                },
+                "dominant": "other",
+                "intended": "wanted",
+                "turns": [],
+            }
+        ],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    return tmp_path
+
+
+class TestEvaluateConversations:
+    def test_scores_the_mixture_against_the_intended_speaker(self, conversation_corpus):
+        rows = evaluate_conversations(conversation_corpus)
+
+        assert len(rows) == 1
+        assert math.isfinite(rows[0].baseline_si_sdr)
+
+    def test_reports_when_the_heuristic_would_pick_the_wrong_voice(self, conversation_corpus):
+        rows = evaluate_conversations(conversation_corpus)
+
+        assert rows[0].intended == "wanted"
+        assert rows[0].dominant == "other"
+        assert rows[0].heuristic_agrees is False
+
+    def test_reports_agreement_when_dominant_matches_intended(self, tmp_path):
+        wanted = RNG.normal(0.0, 0.2, SAMPLE_RATE).astype(np.float32)
+        write_wav(tmp_path / "conversations" / "solo_wanted.wav", wanted)
+        write_wav(tmp_path / "conversations" / "solo.wav", wanted)
+        (tmp_path / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "sample_rate": SAMPLE_RATE,
+                    "seed": 1,
+                    "entries": [],
+                    "conversations": [
+                        {
+                            "key": "solo",
+                            "mixture": "conversations/solo.wav",
+                            "references": {"wanted": "conversations/solo_wanted.wav"},
+                            "dominant": "wanted",
+                            "intended": "wanted",
+                            "turns": [],
+                        }
+                    ],
+                }
+            )
+        )
+
+        rows = evaluate_conversations(tmp_path)
+
+        assert rows[0].heuristic_agrees is True
+
+    def test_scores_a_processed_file_when_one_is_given(self, conversation_corpus, tmp_path):
+        wanted, _ = sf.read(
+            conversation_corpus / "conversations" / "chat_wanted.wav", dtype="float32"
+        )
+        processed = tmp_path / "out"
+        write_wav(processed / "chat.wav", wanted)
+
+        rows = evaluate_conversations(conversation_corpus, processed)
+
+        assert rows[0].processed_si_sdr == math.inf
+        assert rows[0].improvement is not None
+
+    def test_reports_a_missing_processed_file_instead_of_crashing(
+        self, conversation_corpus, tmp_path
+    ):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+
+        with pytest.raises(EvalError, match="not found"):
+            evaluate_conversations(conversation_corpus, empty)
+
+    def test_returns_nothing_for_a_corpus_without_conversations(self, corpus):
+        assert evaluate_conversations(corpus) == ()
+
+    def test_rejects_a_corpus_without_a_manifest(self, tmp_path):
+        with pytest.raises(EvalError, match="manifest"):
+            evaluate_conversations(tmp_path)
 
 
 class TestSummarize:
