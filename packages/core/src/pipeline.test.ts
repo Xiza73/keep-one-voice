@@ -20,7 +20,7 @@ const engineThatSucceeds = (): { engine: VoiceEngine; calls: EngineRequest[] } =
     engine: {
       run: async (request) => {
         calls.push(request);
-        return ok({ outputPath: request.outputPath, segments: [], warnings: [] });
+        return ok({ outputPath: request.outputPath, segments: [], transcript: [], warnings: [] });
       },
     },
   };
@@ -149,6 +149,7 @@ describe('runPipeline', () => {
         ok({
           outputPath: request.outputPath,
           segments: [],
+          transcript: [],
           warnings: ['stage "denoise" is not implemented yet'],
         }),
     };
@@ -170,6 +171,7 @@ describe('runPipeline', () => {
       run: async (request) =>
         ok({
           outputPath: request.outputPath,
+          transcript: [],
           warnings: [],
           segments: [
             { speakerId: 'SPEAKER_00', startMs: 0, endMs: 1_000, meanDbfs: -20 },
@@ -231,6 +233,7 @@ describe('runPipeline', () => {
         calls.push(request);
         return ok({
           outputPath: request.outputPath,
+          transcript: [],
           warnings: [],
           segments: request.stages.includes('diarize') ? segments : [],
         });
@@ -263,6 +266,7 @@ describe('runPipeline', () => {
         calls.push(request);
         return ok({
           outputPath: request.outputPath,
+          transcript: [],
           warnings: [],
           segments: request.stages.includes('diarize') ? segments : [],
         });
@@ -286,6 +290,7 @@ describe('runPipeline', () => {
         calls.push(request);
         return ok({
           outputPath: request.outputPath,
+          transcript: [],
           warnings: [],
           segments: request.stages.includes('diarize')
             ? [{ speakerId: 'A', startMs: 0, endMs: 1_000, meanDbfs: -20 }]
@@ -314,6 +319,7 @@ describe('runPipeline', () => {
         calls.push(request);
         return ok({
           outputPath: request.outputPath,
+          transcript: [],
           warnings: [],
           segments: request.stages.includes('diarize') ? segments : [],
         });
@@ -356,6 +362,7 @@ describe('runPipeline', () => {
       run: async (request) =>
         ok({
           outputPath: request.outputPath,
+          transcript: [],
           warnings: [],
           segments: request.stages.includes('diarize')
             ? [{ speakerId: 'A', startMs: 0, endMs: 1_000, meanDbfs: -20 }]
@@ -377,6 +384,7 @@ describe('runPipeline', () => {
       run: async (request) =>
         ok({
           outputPath: request.outputPath,
+          transcript: [],
           warnings: [`warned by ${request.stages.join(',')}`],
           segments: request.stages.includes('diarize')
             ? [{ speakerId: 'A', startMs: 0, endMs: 1_000, meanDbfs: -20 }]

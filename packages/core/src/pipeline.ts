@@ -7,9 +7,28 @@ import {
 } from './speaker.ts';
 
 /** Stages as the user sees them on `--stages`. See the phase table in CLAUDE.md. */
-export type PipelineStage = 'decode' | 'denoise' | 'separate' | 'diarize' | 'extract';
+export type PipelineStage =
+  | 'decode'
+  | 'denoise'
+  | 'separate'
+  | 'diarize'
+  | 'extract'
+  | 'transcribe';
 
 export const PIPELINE_STAGES: readonly PipelineStage[] = [
+  'decode',
+  'denoise',
+  'separate',
+  'diarize',
+  'extract',
+  'transcribe',
+] as const;
+
+/**
+ * What runs when `--stages` is not given. Transcription is deliberately absent:
+ * it is slow, it is optional by design, and most runs only want clean audio.
+ */
+export const DEFAULT_STAGES: readonly PipelineStage[] = [
   'decode',
   'denoise',
   'separate',
@@ -29,6 +48,7 @@ export const WORKER_STAGES: readonly WorkerStage[] = [
   'separate',
   'diarize',
   'extract',
+  'transcribe',
 ] as const;
 
 /**
@@ -77,9 +97,17 @@ export interface EngineRequest {
   readonly speaker?: string;
 }
 
+/** One spoken line with its timing, as returned by transcription. */
+export interface TranscriptLine {
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly text: string;
+}
+
 export interface EngineResponse {
   readonly outputPath: string;
   readonly segments: readonly SpeakerSegment[];
+  readonly transcript: readonly TranscriptLine[];
   readonly warnings: readonly string[];
 }
 
@@ -135,6 +163,7 @@ export interface PipelineOutcome {
   readonly outputPath: string;
   readonly durationMs: number;
   readonly speakerId: string | null;
+  readonly transcript: readonly TranscriptLine[];
   readonly warnings: readonly string[];
 }
 
@@ -171,6 +200,7 @@ export async function runPipeline(
       outputPath: options.outputPath,
       durationMs: decoded.value.durationMs,
       speakerId: null,
+      transcript: [],
       warnings: [],
     });
   }
@@ -179,7 +209,18 @@ export async function runPipeline(
   // domain layer decides which voice to keep, and only then does the worker
   // mask the audio. Keeping that decision here is why `SpeakerSelector` exists.
   const extracting = workerStages.includes('extract');
-  const analysisStages = workerStages.filter((stage) => stage !== 'extract');
+  const transcribing = workerStages.includes('transcribe');
+  const analysisStages = workerStages.filter(
+    (stage) => stage !== 'extract' && stage !== 'transcribe',
+  );
+
+  // Transcription has to read the finished track, so it rides on whichever call
+  // is the last one.
+  const tail: readonly WorkerStage[] = transcribing ? ['transcribe'] : [];
+  const firstCallStages: readonly WorkerStage[] = extracting
+    ? analysisStages
+    : [...analysisStages, ...tail];
+  const secondCallStages: readonly WorkerStage[] = ['extract', ...tail];
 
   const analysisTarget = extracting
     ? await deps.workspace.createTempFile('-analysed.wav')
@@ -193,12 +234,13 @@ export async function runPipeline(
   const warnings: string[] = [];
   let analysed = decoded.value.path;
   let segments: readonly SpeakerSegment[] = [];
+  let transcript: readonly TranscriptLine[] = [];
 
-  if (analysisStages.length > 0) {
+  if (firstCallStages.length > 0) {
     const analysis = await deps.engine.run({
       inputPath: analysed,
       outputPath: analysisTarget,
-      stages: analysisStages,
+      stages: firstCallStages,
     });
 
     if (!analysis.ok) {
@@ -208,6 +250,7 @@ export async function runPipeline(
 
     analysed = analysis.value.outputPath;
     segments = analysis.value.segments;
+    transcript = analysis.value.transcript;
     warnings.push(...analysis.value.warnings);
   }
 
@@ -217,9 +260,10 @@ export async function runPipeline(
   if (!extracting) {
     await cleanUp();
     return ok({
-      outputPath: analysisStages.length > 0 ? analysed : options.outputPath,
+      outputPath: firstCallStages.length > 0 ? analysed : options.outputPath,
       durationMs: decoded.value.durationMs,
       speakerId: selection?.ok ? selection.value : null,
+      transcript,
       warnings,
     });
   }
@@ -232,7 +276,7 @@ export async function runPipeline(
   const extraction = await deps.engine.run({
     inputPath: analysed,
     outputPath: options.outputPath,
-    stages: ['extract'],
+    stages: secondCallStages,
     segments,
     speaker: selection.value,
   });
@@ -245,6 +289,7 @@ export async function runPipeline(
     outputPath: extraction.value.outputPath,
     durationMs: decoded.value.durationMs,
     speakerId: selection.value,
+    transcript: extraction.value.transcript.length > 0 ? extraction.value.transcript : transcript,
     warnings: [...warnings, ...extraction.value.warnings],
   });
 }

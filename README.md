@@ -3,14 +3,14 @@
 Isolate the main voice from an audio recording by removing background noise,
 music and secondary speakers.
 
-> **Status: F3 built, diarization not yet measured.** `kov` decodes to mono
-> 48 kHz, removes background noise with DeepFilterNet 3, pulls the voice out of
-> a mix with Demucs v4, and now diarizes and extracts a single speaker.
-> Denoising and separation are measured at **+11.8 to +13.5 dB** SI-SDR.
-> Diarization sits behind a manual gate — `pyannote/speaker-diarization-3.1`
-> needs its licence accepted and an `HF_TOKEN` — so it has **not** been run
-> against the corpus yet. Extraction is model-free and fully tested. See
-> [Measuring quality](#measuring-quality).
+> **Status: every stage built; diarization not yet measured.** `kov` decodes to
+> mono 48 kHz, removes background noise with DeepFilterNet 3, pulls the voice
+> out of a mix with Demucs v4, diarizes and extracts a single speaker, and can
+> transcribe the result. Denoising and separation are measured at **+11.8 to
+> +13.5 dB** SI-SDR. Diarization sits behind a manual gate —
+> `pyannote/speaker-diarization-3.1` needs its licence accepted and an
+> `HF_TOKEN` — so it has **not** been run against the corpus yet. Everything
+> else is verified end to end. See [Measuring quality](#measuring-quality).
 
 ## The problem
 
@@ -47,12 +47,35 @@ flowchart LR
 | `separate` | Split voice from music and instruments | Demucs v4 (`htdemucs`) |
 | `diarize` | Find who speaks when | pyannote 3.1 |
 | `extract` | Keep only the target speaker | — |
+| `transcribe` | Optional. Write out what was said | faster-whisper |
 
 Run a subset with `--stages`:
 
 ```bash
 kov noisy-note.ogg --stages decode,denoise
 ```
+
+### Transcription
+
+Off by default. Whisper is slow and most runs only want clean audio, so
+`transcribe` is the one stage `--stages` leaves out unless you ask for it.
+
+```bash
+kov interview.mp3 -o clean.wav --transcript words.txt
+```
+
+Asking for a path implies the stage; asking for the stage derives a path from
+the output. The file is one line per spoken segment, prefixed with when it
+starts, so a quote can be found in the audio it came from:
+
+```
+[00:00:00.000] The recording was made in a small room with the window open.
+[00:00:05.040] And the air conditioning never stops.
+```
+
+The language is detected, not configured. Pick a bigger model with
+`KOV_WHISPER_MODEL` (`tiny`, `base`, `small`, `medium`, `large-v3`, `turbo`, …)
+— an unknown name is rejected before anything is downloaded.
 
 ### Choosing the speaker
 
@@ -242,7 +265,7 @@ debugging a four-stage pipeline all at once is not a plan.
 - [x] **F2** — Separate voice from music and instruments
 - [ ] **F3** — Diarize and extract the dominant speaker — built and tested, but
       diarization stays unmeasured until `HF_TOKEN` is set. Extraction is done.
-- [ ] **F4** — Optional transcription of the result
+- [x] **F4** — Optional transcription of the result
 
 Quality is judged with metrics (SI-SDR, PESQ) against a fixture corpus, not by
 ear. "Sounds better" is not a criterion anyone can verify.

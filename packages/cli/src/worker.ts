@@ -3,6 +3,7 @@ import type {
   EngineResponse,
   Result,
   SpeakerSegment,
+  TranscriptLine,
   VoiceEngine,
   WorkerStage,
 } from '@kov/core';
@@ -24,10 +25,17 @@ interface RawSegment {
   readonly mean_dbfs?: unknown;
 }
 
+interface RawLine {
+  readonly start_ms?: unknown;
+  readonly end_ms?: unknown;
+  readonly text?: unknown;
+}
+
 interface RawResponse {
   readonly ok?: unknown;
   readonly output_path?: unknown;
   readonly segments?: readonly RawSegment[];
+  readonly transcript?: readonly RawLine[];
   readonly warnings?: readonly unknown[];
   readonly error?: {
     readonly kind?: unknown;
@@ -63,6 +71,12 @@ const asWorkerStage = (value: unknown): WorkerStage | null =>
   typeof value === 'string' && (WORKER_STAGES as readonly string[]).includes(value)
     ? (value as WorkerStage)
     : null;
+
+const toLine = (raw: RawLine): TranscriptLine => ({
+  startMs: Number(raw.start_ms ?? 0),
+  endMs: Number(raw.end_ms ?? 0),
+  text: String(raw.text ?? ''),
+});
 
 const toEngineError = (raw: RawResponse['error']): EngineError => {
   const detail = typeof raw?.detail === 'string' ? raw.detail : 'the worker reported a failure';
@@ -146,6 +160,7 @@ export function createWorkerEngine(runner: ProcessRunner, options: WorkerOptions
       return ok({
         outputPath: String(response.output_path ?? request.outputPath),
         segments: (response.segments ?? []).map(toSegment),
+        transcript: (response.transcript ?? []).map(toLine),
         warnings: (response.warnings ?? []).map(String),
       });
     },

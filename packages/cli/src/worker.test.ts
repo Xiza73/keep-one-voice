@@ -142,7 +142,7 @@ describe('createWorkerEngine', () => {
       stdout: responseLine({
         id: 'req-1',
         ok: false,
-        error: { kind: 'stage-failed', stage: 'transcribe', detail: 'boom' },
+        error: { kind: 'stage-failed', stage: 'translate', detail: 'boom' },
       }),
       stderr: '',
     });

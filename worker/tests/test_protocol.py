@@ -52,7 +52,12 @@ class TestParseRequest:
 
     def test_rejects_an_unknown_stage(self):
         with pytest.raises(ProtocolError, match="unknown stage"):
-            parse_request(valid_payload(stages=["denoise", "transcribe"]))
+            parse_request(valid_payload(stages=["denoise", "translate"]))
+
+    def test_accepts_transcribe(self):
+        request = parse_request(valid_payload(stages=["transcribe"]))
+
+        assert request.stages == ("transcribe",)
 
     def test_rejects_decode_because_it_runs_in_the_cli(self):
         with pytest.raises(ProtocolError, match="unknown stage"):

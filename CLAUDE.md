@@ -67,6 +67,7 @@ bun run setup:py         # crea el entorno de Python del worker (uv sync)
 cd worker && uv sync --extra denoise      # F1: DeepFilterNet 3
 cd worker && uv sync --extra separate     # F2: Demucs v4 (htdemucs)
 cd worker && uv sync --extra diarize      # F3: pyannote 3.1 (exige HF_TOKEN)
+cd worker && uv sync --extra transcribe   # F4: faster-whisper (opcional)
 
 bun run dev              # ejecuta la CLI en desarrollo
 bun run build            # compila el binario en dist/kov
