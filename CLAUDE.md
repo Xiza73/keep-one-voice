@@ -131,6 +131,11 @@ Los merges se hacen siempre con commit de merge (`--no-ff`). No se hace squash
 ni rebase sobre la rama destino: ambos destruyen la granularidad intencional de
 los commits.
 
+**Changelog.** Cada versión añade su entrada en `CHANGELOG.md` antes de
+etiquetar, siguiendo Keep a Changelog. La sección de limitaciones conocidas no
+es opcional: un release que esconde sus límites consigue una primera impresión
+mejor y una segunda mucho peor.
+
 ## 6. Estructura del repositorio
 
 ```
